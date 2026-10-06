@@ -10,6 +10,8 @@ import { FinalWaitingRoom } from './FinalWaitingRoom';
 import { FinalWinnersScreen } from './FinalWinnersScreen';
 import { ProctoringGuard } from '../../components/ProctoringGuard';
 import { teamService } from '../../services/teamService';
+import { adminService } from '../../services/adminService';
+import { leaderboardService } from '../../services/leaderboardService';
 import { GAME_STATES } from '../../constants/gameConfig';
 import { simulatorEngine } from '../../services/simulatorEngine';
 
@@ -35,13 +37,50 @@ export function TeamApp({ team, gameSession, onTeamStateChange }) {
       }
     }
     syncTeam();
+  }, [team?.id, gameSession?.current_state, gameSession?.current_round]);
 
-    // Check winners if final result
-    const simState = simulatorEngine.readState();
-    if (simState?.finalWinners) {
-      setWinnersData(simState.finalWinners);
+  // Handle final winners detection
+  useEffect(() => {
+    async function checkWinners() {
+      if (currentState === GAME_STATES.FINAL_RESULT) {
+        // 1. Check simulator engine
+        const simState = simulatorEngine.readState();
+        if (simState?.finalWinners) {
+          setWinnersData(simState.finalWinners);
+          return;
+        }
+
+        // 2. Check Supabase audit log
+        try {
+          const logs = await adminService.getAuditLogs();
+          const winLog = logs.find((l) => l.action === 'FINAL_WINNERS_DECLARED');
+          if (winLog?.metadata) {
+            setWinnersData({
+              winner: { team_name: winLog.metadata.winner || winLog.metadata.winner_name || 'TEAM ALPHA' },
+              runnerUp: { team_name: winLog.metadata.runner_up || winLog.metadata.runner_up_name || 'TEAM BETA' }
+            });
+            return;
+          }
+        } catch (e) {
+          // ignore
+        }
+
+        // 3. Fallback to top 2 from leaderboard
+        try {
+          const lb = await leaderboardService.getLiveLeaderboard();
+          if (lb && lb.length >= 2) {
+            setWinnersData({
+              winner: lb[0],
+              runnerUp: lb[1]
+            });
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
     }
-  }, [team?.id, gameSession?.current_state]);
+    checkWinners();
+  }, [currentState]);
 
   // Check if team already completed current round
   useEffect(() => {

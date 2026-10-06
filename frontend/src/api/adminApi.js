@@ -43,62 +43,63 @@ export const adminApi = {
   },
 
   /**
-   * Full Event Reset via backend RPC admin_reset_event and table cleanup
+   * Full Event Reset via atomic RPC or multi-table rollback
    */
   async resetEvent(adminKey = 'ADMIN-CYBER-2026') {
     if (!apiClient.isConfigured()) {
       return { success: false, fallback: true };
     }
 
-    // Call atomic RPC function
-    await apiClient.rpc('admin_reset_event', { p_admin_key: adminKey });
+    // 1. Try atomic admin_reset_event RPC first
+    try {
+      const rpcRes = await apiClient.rpc('admin_reset_event', { p_admin_key: adminKey });
+      if (rpcRes.success && rpcRes.data?.success) {
+        return { success: true };
+      }
+    } catch (e) {
+      console.warn('RPC admin_reset_event not available, falling back to multi-step reset:', e);
+    }
 
+    // 2. Guaranteed multi-step reset:
     try {
       const dummyFilter = '00000000-0000-0000-0000-000000000000';
 
-      // Reset game_session to initial LANDING state
-      await apiClient
-        .from('game_session')
-        .update({
-          current_state: 'LANDING',
-          current_round: 1,
-          round_timer_seconds: 300,
-          timer_started_at: new Date().toISOString(),
-          started_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .neq('id', dummyFilter);
+      // A. Reset game_session to LANDING, round 1 via admin_set_game_state RPC
+      await this.setGameState(adminKey, 'LANDING', 1);
 
-      // Reset all teams to active and Round 1
-      await apiClient
-        .from('teams')
-        .update({
-          status: 'active',
-          current_round: 1,
-          updated_at: new Date().toISOString()
-        })
-        .neq('id', dummyFilter);
+      // B. Fetch all teams and reset their status & current_round to 1 via admin_confirm_round_selections
+      const { data: allTeams } = await apiClient.from('teams').select('id');
+      if (allTeams && allTeams.length > 0) {
+        const allIds = allTeams.map((t) => t.id);
+        await this.confirmRoundSelections(adminKey, 0, allIds);
+      }
 
-      // Clear round scores, unlocked words, submitted questions, selections, and final attempts
-      await apiClient.from('round_results').delete().neq('team_id', dummyFilter);
-      await apiClient.from('team_words').delete().neq('team_id', dummyFilter);
-      await apiClient.from('team_questions').delete().neq('team_id', dummyFilter);
-      await apiClient.from('round_selections').delete().neq('team_id', dummyFilter);
-      await apiClient.from('final_attempts').delete().neq('team_id', dummyFilter);
-
-      // Log action
-      await apiClient.from('audit_logs').insert([
-        {
-          admin_id: 'admin',
-          action: 'EVENT_RESTARTED',
-          round_number: 1,
-          metadata: { timestamp: new Date().toISOString() }
-        }
+      // C. Delete all tournament progress rows
+      await Promise.allSettled([
+        apiClient.from('round_results').delete().neq('team_id', dummyFilter),
+        apiClient.from('team_words').delete().neq('team_id', dummyFilter),
+        apiClient.from('team_questions').delete().neq('team_id', dummyFilter),
+        apiClient.from('round_selections').delete().neq('team_id', dummyFilter),
+        apiClient.from('final_attempts').delete().neq('team_id', dummyFilter)
       ]);
+
+      // D. Record in audit logs
+      try {
+        await apiClient.from('audit_logs').insert([
+          {
+            admin_id: 'admin',
+            action: 'EVENT_RESTARTED',
+            round_number: 1,
+            metadata: { timestamp: new Date().toISOString() }
+          }
+        ]);
+      } catch (logErr) {
+        // ignore
+      }
 
       return { success: true };
     } catch (err) {
-      console.warn('[adminApi] resetEvent error:', err);
+      console.warn('[adminApi] resetEvent fallback error:', err);
       return { success: false, error: err.message };
     }
   },
@@ -124,20 +125,32 @@ export const adminApi = {
   /**
    * Declare final tournament winners
    */
-  async declareFinalWinners(adminKey, winnerId, runnerUpId) {
+  async declareFinalWinners(adminKey, winnerId, runnerUpId, winnerName = null, runnerUpName = null) {
     if (!apiClient.isConfigured()) return false;
     try {
+      let wName = winnerName;
+      let rName = runnerUpName;
+      if (!wName || !rName) {
+        const { data: teams } = await apiClient.from('teams').select('id, team_name').in('id', [winnerId, runnerUpId]);
+        if (teams) {
+          wName = teams.find((t) => t.id === winnerId)?.team_name || wName;
+          rName = teams.find((t) => t.id === runnerUpId)?.team_name || rName;
+        }
+      }
       await apiClient.from('audit_logs').insert([
         {
           admin_id: 'admin',
           action: 'FINAL_WINNERS_DECLARED',
-          metadata: { winner_id: winnerId, runner_up_id: runnerUpId }
+          metadata: {
+            winner_id: winnerId,
+            runner_up_id: runnerUpId,
+            winner_name: wName || 'TEAM ALPHA',
+            runner_up_name: rName || 'TEAM BETA',
+            timestamp: new Date().toISOString()
+          }
         }
       ]);
-      await apiClient
-        .from('game_session')
-        .update({ current_state: 'FINAL_RESULT' })
-        .neq('id', '00000000-0000-0000-0000-000000000000');
+      await this.setGameState(adminKey, 'FINAL_RESULT', 4);
       return true;
     } catch (err) {
       console.warn('[adminApi] declareFinalWinners error:', err);

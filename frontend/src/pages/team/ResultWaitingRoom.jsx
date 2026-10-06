@@ -5,6 +5,7 @@ import { GAME_CONFIG } from '../../constants/gameConfig';
 
 export function ResultWaitingRoom({ team, roundNumber, gameSession }) {
   const [teamSelection, setTeamSelection] = useState(null);
+  const [currentTeamStatus, setCurrentTeamStatus] = useState(team?.status);
   const [roundWord, setRoundWord] = useState(null);
   const [roundProgress, setRoundProgress] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -13,6 +14,12 @@ export function ResultWaitingRoom({ team, roundNumber, gameSession }) {
     async function loadStatus() {
       if (!team?.id) return;
       try {
+        // Fetch up-to-date team details
+        const updatedTeam = await teamService.getTeamDetails(team.id);
+        if (updatedTeam?.status) {
+          setCurrentTeamStatus(updatedTeam.status);
+        }
+
         const selections = await teamService.getTeamSelections(team.id);
         const thisRoundSel = selections.find((s) => s.round_number === roundNumber);
         setTeamSelection(thisRoundSel || null);
@@ -34,12 +41,21 @@ export function ResultWaitingRoom({ team, roundNumber, gameSession }) {
     }
 
     loadStatus();
-    const interval = setInterval(loadStatus, 3000);
+    const interval = setInterval(loadStatus, 1500);
     return () => clearInterval(interval);
   }, [team?.id, roundNumber]);
 
-  const isSelected = teamSelection?.selected === true;
-  const isEliminated = teamSelection?.selected === false || team?.status === 'eliminated';
+  // Qualification status logic
+  // The secret word MUST ONLY be revealed when the team has been officially confirmed/selected for the next round!
+  const hasAdminConfirmedThisRound = Boolean(teamSelection);
+
+  const isSelected =
+    hasAdminConfirmedThisRound && teamSelection?.selected === true;
+
+  const isEliminated =
+    (hasAdminConfirmedThisRound && teamSelection?.selected === false) ||
+    currentTeamStatus === 'eliminated' ||
+    team?.status === 'eliminated';
 
   return (
     <div
@@ -67,8 +83,8 @@ export function ResultWaitingRoom({ team, roundNumber, gameSession }) {
           background: 'rgba(9, 15, 30, 0.94)'
         }}
       >
-        {/* State 1: Awaiting Admin Evaluation */}
-        {!teamSelection && !isEliminated && (
+        {/* State 1: Awaiting Admin Evaluation (Neither Selected nor Eliminated yet) */}
+        {!isSelected && !isEliminated && (
           <div>
             <div
               style={{
@@ -162,7 +178,7 @@ export function ResultWaitingRoom({ team, roundNumber, gameSession }) {
           </div>
         )}
 
-        {/* State 2: Team IS Selected / Qualified */}
+        {/* State 2: Team IS Selected / Qualified -> SECRET WORD IS REVEALED */}
         {isSelected && (
           <div>
             <div
@@ -194,7 +210,7 @@ export function ResultWaitingRoom({ team, roundNumber, gameSession }) {
             </h1>
 
             <p style={{ color: 'var(--text-muted)', fontSize: '1rem', marginBottom: '2rem' }}>
-              Outstanding performance, <strong style={{ color: '#fff' }}>{team.team_name}</strong>! Your team has been officially selected to advance to Round 0{roundNumber + 1}.
+              Outstanding performance, <strong style={{ color: '#fff' }}>{team?.team_name}</strong>! Your team has been officially selected to advance to Round 0{roundNumber + 1}.
             </p>
 
             {/* REVEALED SECRET WORD VAULT (ONLY FOR SELECTED TEAMS) */}
@@ -304,7 +320,7 @@ export function ResultWaitingRoom({ team, roundNumber, gameSession }) {
           </div>
         )}
 
-        {/* State 3: Team was NOT Selected */}
+        {/* State 3: Team was NOT Selected -> NO SECRET WORD */}
         {isEliminated && !isSelected && (
           <div>
             <div

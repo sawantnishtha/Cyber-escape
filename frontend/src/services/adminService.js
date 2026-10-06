@@ -14,6 +14,7 @@ export const adminService = {
 
     // Always broadcast across local tabs via BroadcastChannel as well
     const simSession = simulatorEngine.setGameState(newState, roundNumber);
+    simulatorEngine.broadcast('STATE_CHANGED', { state: newState, round: roundNumber || 1 });
     return apiRes.data || simSession;
   },
 
@@ -22,12 +23,13 @@ export const adminService = {
     await gameApi.updateTeamStatus(teamId, status, roundNumber);
 
     // Always broadcast across local tabs and sync local state
-    return simulatorEngine.updateTeamStatus(teamId, status, roundNumber);
+    const res = simulatorEngine.updateTeamStatus(teamId, status, roundNumber);
+    simulatorEngine.broadcast('TEAM_STATUS_CHANGED', { teamId, status, round: roundNumber });
+    return res;
   },
 
   // Direct status update for all teams (e.g. bring everyone into active/selected)
   async updateAllTeamsStatus(status, roundNumber = null) {
-    // Sync with simulator
     return simulatorEngine.updateAllTeamsStatus(status, roundNumber);
   },
 
@@ -37,6 +39,7 @@ export const adminService = {
 
     // Always sync simulator and broadcast
     const simRes = simulatorEngine.confirmRoundSelections(roundNumber, selectedTeamIds);
+    simulatorEngine.broadcast('SELECTIONS_CONFIRMED', { round: roundNumber, selectedCount: selectedTeamIds.length });
     return apiRes.data || simRes;
   },
 
@@ -49,10 +52,13 @@ export const adminService = {
     return state?.roundSelections || [];
   },
 
-  // Declare final Winner and Runner-up
-  async declareFinalWinners(adminKey, winnerId, runnerUpId) {
-    await adminApi.declareFinalWinners(adminKey, winnerId, runnerUpId);
-    return simulatorEngine.declareFinalWinners(winnerId, runnerUpId);
+  // Declare final Winner and Runner-up & End Event
+  async declareFinalWinners(adminKey, winnerId, runnerUpId, winnerName = null, runnerUpName = null) {
+    await adminApi.declareFinalWinners(adminKey, winnerId, runnerUpId, winnerName, runnerUpName);
+    const res = simulatorEngine.declareFinalWinners(winnerId, runnerUpId);
+    simulatorEngine.broadcast('WINNERS_DECLARED', { winnerId, runnerUpId, winnerName, runnerUpName });
+    simulatorEngine.broadcast('STATE_CHANGED', { state: 'FINAL_RESULT', round: 4 });
+    return res;
   },
 
   // Fetch audit logs
@@ -66,7 +72,7 @@ export const adminService = {
 
   // Full Reset of Competition Event (Supabase + Local Simulator + Anti-cheat strikes)
   async resetEvent(adminKey = 'ADMIN-CYBER-2026') {
-    // 1. Backend Reset via adminApi
+    // 1. Backend Reset via adminApi (sets session to LANDING, round 1, resets teams & deletes scores)
     await adminApi.resetEvent(adminKey);
 
     // 2. Clear all local proctoring strikes in localStorage

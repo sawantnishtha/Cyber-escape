@@ -180,8 +180,8 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
     }
   };
 
-  // Confirm qualification for any round
-  const handleConfirmRoundQualification = (roundNumber) => {
+  // Confirm qualification for any round (reveals results & secret words to selected teams)
+  const handleConfirmRoundQualification = (roundNumber, autoAdvance = false) => {
     soundEffects.playClick();
     const selectedIds = Object.keys(selectedTeamsMap).filter((id) => selectedTeamsMap[id]);
 
@@ -191,33 +191,36 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
     }
 
     setConfirmModalConfig({
-      title: `CONFIRM ROUND ${roundNumber} SELECTION?`,
-      message: `You have selected ${selectedIds.length} team(s) to advance to Round ${roundNumber + 1}. Non-selected teams will be marked as Eliminated. Advance state now?`,
+      title: `CONFIRM ROUND ${roundNumber} QUALIFICATIONS?`,
+      message: `You have selected ${selectedIds.length} team(s) to advance. Non-selected teams will be marked as Not Selected / Eliminated.\n\nQualified teams will immediately reveal their Secret Word on their screen. Proceed?`,
       danger: true,
       onConfirm: async () => {
         setIsProcessing(true);
         try {
+          // 1. Save round selections to database and update team statuses
           await adminService.confirmRoundSelections('ADMIN-CYBER-2026', roundNumber, selectedIds);
 
-          let nextState = GAME_STATES.R2_WAITING;
-          let nextRound = 2;
-          if (roundNumber === 1) {
-            nextState = GAME_STATES.R2_WAITING;
-            nextRound = 2;
-          } else if (roundNumber === 2) {
-            nextState = GAME_STATES.R3_WAITING;
-            nextRound = 3;
-          } else if (roundNumber === 3) {
-            nextState = GAME_STATES.R4_WAITING;
-            nextRound = 4;
-          } else if (roundNumber === 4) {
-            nextState = GAME_STATES.FINAL_RIDDLE;
-            nextRound = 4;
+          // 2. Set game state to the corresponding RESULT state so teams see their Qualified + Secret Word vs Not Selected screen
+          let resultState = GAME_STATES.R1_RESULT;
+          if (roundNumber === 1) resultState = GAME_STATES.R1_RESULT;
+          else if (roundNumber === 2) resultState = GAME_STATES.R2_RESULT;
+          else if (roundNumber === 3) resultState = GAME_STATES.R3_RESULT;
+          else if (roundNumber === 4) resultState = GAME_STATES.R4_RESULT;
+
+          if (autoAdvance) {
+            let nextState = GAME_STATES.R2_WAITING;
+            let nextRound = 2;
+            if (roundNumber === 1) { nextState = GAME_STATES.R2_WAITING; nextRound = 2; }
+            else if (roundNumber === 2) { nextState = GAME_STATES.R3_WAITING; nextRound = 3; }
+            else if (roundNumber === 3) { nextState = GAME_STATES.R4_WAITING; nextRound = 4; }
+            else if (roundNumber === 4) { nextState = GAME_STATES.FINAL_RIDDLE; nextRound = 4; }
+            await adminService.setGameState('ADMIN-CYBER-2026', nextState, nextRound);
+          } else {
+            await adminService.setGameState('ADMIN-CYBER-2026', resultState, roundNumber);
           }
 
-          await adminService.setGameState('ADMIN-CYBER-2026', nextState, nextRound);
           soundEffects.playAccessGranted();
-          showConsoleNotice(`ROUND ${roundNumber} QUALIFICATIONS CONFIRMED! STATE ADVANCED TO: ${nextState}`);
+          showConsoleNotice(`ROUND ${roundNumber} SELECTION CONFIRMED! Results & secret words published.`);
           setSelectedTeamsMap({});
           fetchData();
         } catch (err) {
@@ -230,7 +233,7 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
     });
   };
 
-  // Declare Final Winners
+  // Declare Final Winners and broadcast podium
   const handleDeclareFinalWinners = () => {
     soundEffects.playClick();
     if (!selectedWinnerId || !selectedRunnerUpId) {
@@ -252,12 +255,80 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
       onConfirm: async () => {
         setIsProcessing(true);
         try {
-          await adminService.declareFinalWinners('ADMIN-CYBER-2026', selectedWinnerId, selectedRunnerUpId);
+          await adminService.declareFinalWinners('ADMIN-CYBER-2026', selectedWinnerId, selectedRunnerUpId, winner?.team_name, runnerUp?.team_name);
           soundEffects.playKeyUnlocked();
           showConsoleNotice(`FINAL PODIUM PUBLISHED // WINNER: ${winner?.team_name}, RUNNER-UP: ${runnerUp?.team_name}`);
           fetchData();
         } catch (err) {
           alert('Failed to declare winners: ' + err.message);
+        } finally {
+          setIsProcessing(false);
+          setConfirmModalConfig(null);
+        }
+      }
+    });
+  };
+
+  // Dedicated Emergency Restart Event handler
+  const handleRestartEvent = () => {
+    soundEffects.playClick();
+    setConfirmModalConfig({
+      title: 'RESTART ENTIRE EVENT?',
+      message: 'This will reset all team states to Active/Round 1, return the game session to the Lobby, clear all scores, words, and submissions, and reset all proctoring strikes. Proceed?',
+      danger: true,
+      onConfirm: async () => {
+        setIsProcessing(true);
+        try {
+          await adminService.resetEvent('ADMIN-CYBER-2026');
+          if (onResetDemo) {
+            await onResetDemo();
+          }
+          setSelectedTeamsMap({});
+          await fetchData();
+          soundEffects.playAccessGranted();
+          showConsoleNotice('EVENT RESTARTED // INITIAL DEFAULT STATE RESTORED');
+        } catch (err) {
+          alert('Failed to restart event: ' + err.message);
+        } finally {
+          setIsProcessing(false);
+          setConfirmModalConfig(null);
+        }
+      }
+    });
+  };
+
+  // Dedicated Emergency End Event handler
+  const handleEndEvent = () => {
+    soundEffects.playClick();
+    
+    // Auto-resolve winner and runner-up from leaderboard if not manually chosen
+    const sorted = [...leaderboard].sort((a, b) => (a.rank || 99) - (b.rank || 99));
+    const defaultWinner = sorted[0];
+    const defaultRunnerUp = sorted[1];
+
+    const winnerId = selectedWinnerId || defaultWinner?.id;
+    const runnerUpId = selectedRunnerUpId || defaultRunnerUp?.id;
+
+    const winnerName = leaderboard.find((t) => t.id === winnerId)?.team_name || defaultWinner?.team_name || 'TEAM ALPHA';
+    const runnerUpName = leaderboard.find((t) => t.id === runnerUpId)?.team_name || defaultRunnerUp?.team_name || 'TEAM BETA';
+
+    setConfirmModalConfig({
+      title: 'END TOURNAMENT & DECLARE CHAMPIONS?',
+      message: `Are you sure you want to conclude the event?\n\n• Champion (1st): ${winnerName}\n• Runner-up (2nd): ${runnerUpName}\n\nThis will terminate active challenges and broadcast the Official Winners Podium to all screens.`,
+      danger: true,
+      onConfirm: async () => {
+        setIsProcessing(true);
+        try {
+          if (winnerId && runnerUpId) {
+            await adminService.declareFinalWinners('ADMIN-CYBER-2026', winnerId, runnerUpId, winnerName, runnerUpName);
+          } else {
+            await adminService.setGameState('ADMIN-CYBER-2026', GAME_STATES.FINAL_RESULT, 4);
+          }
+          soundEffects.playAccessGranted();
+          showConsoleNotice(`TOURNAMENT CONCLUDED // CHAMPION: ${winnerName}, RUNNER-UP: ${runnerUpName}`);
+          fetchData();
+        } catch (err) {
+          alert('Failed to end event: ' + err.message);
         } finally {
           setIsProcessing(false);
           setConfirmModalConfig(null);
@@ -1027,31 +1098,7 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
               {/* RESTART EVENT BUTTON */}
               <button
-                onClick={() => {
-                  soundEffects.playClick();
-                  setConfirmModalConfig({
-                    title: 'RESTART ENTIRE EVENT?',
-                    message: 'This will reset all team states to Active, return game session to Round 1 Lobby, clear all scores/words, and reset proctoring strikes. Proceed?',
-                    danger: true,
-                    onConfirm: async () => {
-                      setIsProcessing(true);
-                      try {
-                        await adminService.resetEvent('ADMIN-CYBER-2026');
-                        if (onResetDemo) {
-                          await onResetDemo();
-                        }
-                        await fetchData();
-                        soundEffects.playAccessGranted();
-                        showConsoleNotice('EVENT RESTARTED // INITIAL DEFAULT STATE RESTORED');
-                      } catch (err) {
-                        alert('Failed to restart event: ' + err.message);
-                      } finally {
-                        setIsProcessing(false);
-                        setConfirmModalConfig(null);
-                      }
-                    }
-                  });
-                }}
+                onClick={handleRestartEvent}
                 disabled={isProcessing}
                 style={{
                   background: 'linear-gradient(135deg, #ffb700, #f59e0b)',
@@ -1076,9 +1123,8 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
 
               {/* END EVENT BUTTON */}
               <button
-                onClick={() => {
-                  handleTransitionState(GAME_STATES.FINAL_RESULT, currentRound, 'Emergency End Event', true);
-                }}
+                onClick={handleEndEvent}
+                disabled={isProcessing}
                 style={{
                   background: '#991b1b',
                   color: '#fff',
@@ -1093,7 +1139,7 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '0.6rem',
-                  cursor: 'pointer'
+                  cursor: isProcessing ? 'not-allowed' : 'pointer'
                 }}
               >
                 <Square size={16} fill="#fff" /> END EVENT
@@ -1379,25 +1425,43 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
               </p>
             </div>
 
-            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <button onClick={() => handleBulkSelect(15)} className="cyber-btn" style={{ padding: '0.45rem 0.85rem', fontSize: '0.78rem', ...adminSans, fontWeight: '600' }}>Top 15</button>
               <button onClick={() => handleBulkSelect(10)} className="cyber-btn" style={{ padding: '0.45rem 0.85rem', fontSize: '0.78rem', ...adminSans, fontWeight: '600' }}>Top 10</button>
               <button onClick={() => handleBulkSelect(null)} className="cyber-btn" style={{ padding: '0.45rem 0.85rem', fontSize: '0.78rem', color: 'var(--neon-red)', ...adminSans, fontWeight: '600' }}>Clear</button>
               <button
-                onClick={() => handleConfirmRoundQualification(1)}
+                onClick={() => handleConfirmRoundQualification(1, false)}
+                disabled={isProcessing}
                 style={{
                   background: 'linear-gradient(135deg, #00f3ff, #00b4d8)',
                   color: '#020814',
                   fontWeight: '700',
                   ...adminSans,
                   fontSize: '0.82rem',
-                  padding: '0.5rem 1.2rem',
+                  padding: '0.5rem 1.1rem',
                   border: 'none',
                   borderRadius: '4px',
-                  cursor: 'pointer'
+                  cursor: isProcessing ? 'not-allowed' : 'pointer'
                 }}
               >
-                Confirm Qualifications & Advance to R2
+                1. Confirm & Reveal Secret Word (R1_RESULT)
+              </button>
+              <button
+                onClick={() => handleTransitionState(GAME_STATES.R2_WAITING, 2, 'Advance Qualified Teams to Round 2 Waiting Room')}
+                disabled={isProcessing}
+                style={{
+                  background: 'rgba(13, 22, 44, 0.9)',
+                  border: '1px solid rgba(0, 243, 255, 0.45)',
+                  color: 'var(--neon-cyan)',
+                  fontWeight: '700',
+                  ...adminSans,
+                  fontSize: '0.82rem',
+                  padding: '0.5rem 1.1rem',
+                  borderRadius: '4px',
+                  cursor: isProcessing ? 'not-allowed' : 'pointer'
+                }}
+              >
+                2. Advance to R2 Waiting Room ➔
               </button>
             </div>
           </div>
@@ -1458,24 +1522,42 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
               </p>
             </div>
 
-            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <button onClick={() => handleBulkSelect(10)} className="cyber-btn" style={{ padding: '0.45rem 0.85rem', fontSize: '0.78rem', ...adminSans, fontWeight: '600' }}>Top 10</button>
               <button onClick={() => handleBulkSelect(null)} className="cyber-btn" style={{ padding: '0.45rem 0.85rem', fontSize: '0.78rem', color: 'var(--neon-red)', ...adminSans, fontWeight: '600' }}>Clear</button>
               <button
-                onClick={() => handleConfirmRoundQualification(2)}
+                onClick={() => handleConfirmRoundQualification(2, false)}
+                disabled={isProcessing}
                 style={{
                   background: 'linear-gradient(135deg, #00f3ff, #00b4d8)',
                   color: '#020814',
                   fontWeight: '700',
                   ...adminSans,
                   fontSize: '0.82rem',
-                  padding: '0.5rem 1.2rem',
+                  padding: '0.5rem 1.1rem',
                   border: 'none',
                   borderRadius: '4px',
-                  cursor: 'pointer'
+                  cursor: isProcessing ? 'not-allowed' : 'pointer'
                 }}
               >
-                Confirm Qualifications & Advance to R3
+                1. Confirm & Reveal Secret Word (R2_RESULT)
+              </button>
+              <button
+                onClick={() => handleTransitionState(GAME_STATES.R3_WAITING, 3, 'Advance Qualified Teams to Round 3 Waiting Room')}
+                disabled={isProcessing}
+                style={{
+                  background: 'rgba(13, 22, 44, 0.9)',
+                  border: '1px solid rgba(0, 243, 255, 0.45)',
+                  color: 'var(--neon-cyan)',
+                  fontWeight: '700',
+                  ...adminSans,
+                  fontSize: '0.82rem',
+                  padding: '0.5rem 1.1rem',
+                  borderRadius: '4px',
+                  cursor: isProcessing ? 'not-allowed' : 'pointer'
+                }}
+              >
+                2. Advance to R3 Waiting Room ➔
               </button>
             </div>
           </div>
@@ -1536,24 +1618,42 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
               </p>
             </div>
 
-            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <button onClick={() => handleBulkSelect(10)} className="cyber-btn" style={{ padding: '0.45rem 0.85rem', fontSize: '0.78rem', ...adminSans, fontWeight: '600' }}>Top 10</button>
               <button onClick={() => handleBulkSelect(null)} className="cyber-btn" style={{ padding: '0.45rem 0.85rem', fontSize: '0.78rem', color: 'var(--neon-red)', ...adminSans, fontWeight: '600' }}>Clear</button>
               <button
-                onClick={() => handleConfirmRoundQualification(3)}
+                onClick={() => handleConfirmRoundQualification(3, false)}
+                disabled={isProcessing}
                 style={{
                   background: 'linear-gradient(135deg, #00f3ff, #00b4d8)',
                   color: '#020814',
                   fontWeight: '700',
                   ...adminSans,
                   fontSize: '0.82rem',
-                  padding: '0.5rem 1.2rem',
+                  padding: '0.5rem 1.1rem',
                   border: 'none',
                   borderRadius: '4px',
-                  cursor: 'pointer'
+                  cursor: isProcessing ? 'not-allowed' : 'pointer'
                 }}
               >
-                Confirm Qualifications & Advance to R4
+                1. Confirm & Reveal Secret Word (R3_RESULT)
+              </button>
+              <button
+                onClick={() => handleTransitionState(GAME_STATES.R4_WAITING, 4, 'Advance Qualified Teams to Round 4 Waiting Room')}
+                disabled={isProcessing}
+                style={{
+                  background: 'rgba(13, 22, 44, 0.9)',
+                  border: '1px solid rgba(0, 243, 255, 0.45)',
+                  color: 'var(--neon-cyan)',
+                  fontWeight: '700',
+                  ...adminSans,
+                  fontSize: '0.82rem',
+                  padding: '0.5rem 1.1rem',
+                  borderRadius: '4px',
+                  cursor: isProcessing ? 'not-allowed' : 'pointer'
+                }}
+              >
+                2. Advance to R4 Waiting Room ➔
               </button>
             </div>
           </div>
@@ -1614,23 +1714,41 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
               </p>
             </div>
 
-            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <button onClick={() => handleBulkSelect(10)} className="cyber-btn" style={{ padding: '0.45rem 0.85rem', fontSize: '0.78rem', ...adminSans, fontWeight: '600' }}>Top 10</button>
               <button
-                onClick={() => handleConfirmRoundQualification(4)}
+                onClick={() => handleConfirmRoundQualification(4, false)}
+                disabled={isProcessing}
                 style={{
                   background: 'linear-gradient(135deg, #00f3ff, #00b4d8)',
                   color: '#020814',
                   fontWeight: '700',
                   ...adminSans,
                   fontSize: '0.82rem',
-                  padding: '0.5rem 1.2rem',
+                  padding: '0.5rem 1.1rem',
                   border: 'none',
                   borderRadius: '4px',
-                  cursor: 'pointer'
+                  cursor: isProcessing ? 'not-allowed' : 'pointer'
                 }}
               >
-                Advance Top 10 to Final Riddle
+                1. Confirm Top 10 & Reveal Secret Word (R4_RESULT)
+              </button>
+              <button
+                onClick={() => handleTransitionState(GAME_STATES.FINAL_RIDDLE, 4, 'Launch Final Riddle Protocol')}
+                disabled={isProcessing}
+                style={{
+                  background: 'rgba(13, 22, 44, 0.9)',
+                  border: '1px solid rgba(255, 183, 0, 0.45)',
+                  color: 'var(--neon-amber)',
+                  fontWeight: '700',
+                  ...adminSans,
+                  fontSize: '0.82rem',
+                  padding: '0.5rem 1.1rem',
+                  borderRadius: '4px',
+                  cursor: isProcessing ? 'not-allowed' : 'pointer'
+                }}
+              >
+                2. Launch Final Riddle Protocol ➔
               </button>
             </div>
           </div>
