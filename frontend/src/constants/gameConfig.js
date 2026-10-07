@@ -28,6 +28,7 @@ export const GAME_CONFIG = {
     MAX_CHANCES: 2,
     TOTAL_DURATION_SECONDS: 360,
     EXPECTED_CODE: 'CYBR',
+    SCRAMBLED_LETTERS: ['R', 'C', 'Y', 'B'],
     SECRET_WORD: 'THINK'
   },
 
@@ -40,13 +41,14 @@ export const GAME_CONFIG = {
     RULES: [
       '2 Technical Crosswords: Crossword 1 (Easy) and Crossword 2 (Hard).',
       '5 minutes allotted per crossword.',
-      'Crossword 1 completion unlocks the first 2 code letters (T, E).',
-      'Crossword 2 completion unlocks the next 2 code letters (C, H).',
-      'Submit the verified 4-letter code (TECH) to register your round submission.'
+      'Crossword 1 completion unlocks the first 2 scrambled letters (H, E).',
+      'Crossword 2 completion unlocks the next 2 scrambled letters (T, C).',
+      'Unscramble the 4 letters and submit the verified key (TECH) to register your round submission.'
     ],
     TOTAL_CROSSWORDS: 2,
     DURATION_PER_CROSSWORD_SECONDS: 300, // 5 minutes
     EXPECTED_CODE: 'TECH',
+    SCRAMBLED_LETTERS: ['H', 'E', 'T', 'C'],
     SECRET_WORD: 'BEFORE'
   },
 
@@ -57,18 +59,19 @@ export const GAME_CONFIG = {
     SUBTITLE: 'ASCII Decryption Matrix',
     DESCRIPTION: 'Direct binary-to-ASCII stream analysis using the permanent system reference matrix.',
     RULES: [
-      '4 Binary-to-ASCII technical decoding challenges.',
+      '4 Binary-to-ASCII technical decoding challenges (2-3 technical words per stream).',
       '60 seconds per question.',
       'Maximum 2 attempts allowed per question.',
       '1 Hint available per question (Recorded and displayed to Admin).',
-      'Each solved challenge unlocks one letter of the 4-letter code (B, Y, T, E).',
-      'Submit complete code (BYTE) to register your round submission.'
+      'Each solved challenge unlocks one letter in a scrambled sequence (E, T, Y, B).',
+      'Unscramble and submit the verified 4-letter key (BYTE) to register your round submission.'
     ],
     TOTAL_QUESTIONS: 4,
     DURATION_SECONDS: 60,
     MAX_ATTEMPTS: 2,
     MAX_HINTS: 1,
     EXPECTED_CODE: 'BYTE',
+    SCRAMBLED_LETTERS: ['E', 'T', 'Y', 'B'],
     SECRET_WORD: 'YOU'
   },
 
@@ -79,17 +82,18 @@ export const GAME_CONFIG = {
     SUBTITLE: 'Tri-Language Logic Reconstruction',
     DESCRIPTION: 'Fill the critical blanks in C++, Python, or Java to execute the kernel bypass.',
     RULES: [
-      '4 Multi-Language Logic Problems (C++, Python, Java).',
-      'Choose your preferred language for each problem.',
-      '2 to 3 blanks per question. 4 to 6 lines of code.',
+      '4 Multi-Language Logic Problems (20-30 lines of code, 3 to 4 blanks per problem).',
+      'Choose your preferred language (C++, Python, Java) for each problem.',
       '90 seconds per question.',
       'Hints available (Logged to Admin leaderboard).',
-      'Correct execution unlocks code characters (C, O, D, E) to register your round submission.'
+      'Correct execution unlocks scrambled code characters (D, O, C, E).',
+      'Unscramble the letters and enter the verified key (CODE) to launch the final riddle.'
     ],
     TOTAL_QUESTIONS: 4,
     DURATION_SECONDS: 90,
     MAX_ATTEMPTS: 3,
     EXPECTED_CODE: 'CODE',
+    SCRAMBLED_LETTERS: ['D', 'O', 'C', 'E'],
     SECRET_WORD: 'ESCAPE'
   },
 

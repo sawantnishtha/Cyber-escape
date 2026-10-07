@@ -54,10 +54,10 @@ export function Round1Page({ team, onRoundComplete }) {
   }, [team?.id]);
 
   function updateCodeLetters(solvedCount) {
-    // 4-letter code 'CYBR': Exactly 1 letter unlocked for every 2 solved questions
-    const fullCode = GAME_CONFIG.ROUND_1.EXPECTED_CODE.split('');
+    // 4-letter key 'CYBR' unlocked in scrambled anagram format ['R', 'C', 'Y', 'B']
+    const scrambled = GAME_CONFIG.ROUND_1.SCRAMBLED_LETTERS || ['R', 'C', 'Y', 'B'];
     const lettersUnlockedCount = Math.min(4, Math.floor(solvedCount / 2));
-    setUnlockedCodeLetters(fullCode.slice(0, lettersUnlockedCount));
+    setUnlockedCodeLetters(scrambled.slice(0, lettersUnlockedCount));
   }
 
   // 15s Stage A -> 30s Stage B countdown

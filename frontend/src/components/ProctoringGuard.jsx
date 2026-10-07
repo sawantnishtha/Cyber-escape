@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ShieldAlert, AlertTriangle, Maximize, Lock, XOctagon, RotateCcw, LogOut } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, Lock, XOctagon, RotateCcw, LogOut } from 'lucide-react';
 import { soundEffects } from '../utils/soundEffects';
 import { adminService } from '../services/adminService';
 import { authService } from '../services/authService';
@@ -8,7 +8,6 @@ import { supabase, isSupabaseConfigured } from '../config/supabase';
 const MAX_WARNINGS = 2; // 2 warnings are valid, on 3rd infraction team is disqualified!
 
 export function ProctoringGuard({ team, children, isActive = true }) {
-  const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement));
   const [strikes, setStrikes] = useState(() => {
     if (!team?.id) return 0;
     const saved = localStorage.getItem(`cyber_escape_strikes_${team.id}`);
@@ -104,18 +103,9 @@ export function ProctoringGuard({ team, children, isActive = true }) {
     }
   };
 
-  // Fullscreen & Window Event Listeners
+  // Window Event Listeners for Tab Switching
   useEffect(() => {
     if (!isActive || !team?.id || isDisqualified) return;
-
-    const handleFullscreenChange = () => {
-      const inFull = Boolean(document.fullscreenElement);
-      setIsFullscreen(inFull);
-
-      if (!inFull && !isDisqualified) {
-        recordStrike('EXIT_FULLSCREEN (ESC KEY PRESSED)');
-      }
-    };
 
     const handleVisibilityChange = () => {
       if (document.hidden && !isDisqualified) {
@@ -129,29 +119,19 @@ export function ProctoringGuard({ team, children, isActive = true }) {
       }
     };
 
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('blur', handleWindowBlur);
 
     return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
     };
   }, [isActive, team?.id, strikes, isDisqualified]);
 
-  // Helper to re-enter fullscreen
-  const requestFullscreen = async () => {
-    try {
-      if (!document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
-        setIsFullscreen(true);
-      }
-      setActiveWarning(null);
-      soundEffects.playClick();
-    } catch (err) {
-      console.warn('Failed to enter fullscreen:', err);
-    }
+  // Helper to acknowledge warning and resume
+  const handleAcknowledgeWarning = () => {
+    setActiveWarning(null);
+    soundEffects.playClick();
   };
 
   // Handler to clear strikes and restore team for testing
@@ -398,61 +378,19 @@ export function ProctoringGuard({ team, children, isActive = true }) {
               </div>
               <p style={{ margin: 0, lineHeight: '1.5' }}>
                 {activeWarning.strikeNum === 1
-                  ? 'Exiting fullscreen mode or switching tabs during the competition is strictly prohibited. You have 1 warning remaining.'
-                  : 'CRITICAL ALERT: This is your 2nd and FINAL warning. Any subsequent tab change, application switch, or fullscreen exit will result in IMMEDIATE DISQUALIFICATION.'}
+                  ? 'Switching tabs or navigating away during the competition is strictly prohibited. You have 1 warning remaining.'
+                  : 'CRITICAL ALERT: This is your 2nd and FINAL warning. Any subsequent tab change or application switch will result in IMMEDIATE DISQUALIFICATION.'}
               </p>
             </div>
 
             <button
-              onClick={requestFullscreen}
+              onClick={handleAcknowledgeWarning}
               className={`cyber-btn ${activeWarning.strikeNum === 2 ? 'cyber-btn-danger' : 'cyber-btn-primary'}`}
               style={{ width: '100%', padding: '0.85rem', fontSize: '1rem', justifyContent: 'center' }}
             >
-              <Maximize size={18} /> RE-ENGAGE FULLSCREEN & RESUME
+              <ShieldAlert size={18} /> ACKNOWLEDGE WARNING & RESUME
             </button>
           </div>
-        </div>
-      )}
-
-      {/* 3. INITIAL FULLSCREEN ENTRANCE BANNER (If not yet in fullscreen) */}
-      {!isFullscreen && !activeWarning && (
-        <div
-          style={{
-            position: 'fixed',
-            top: '68px',
-            left: 0,
-            width: '100%',
-            background: 'linear-gradient(90deg, rgba(255, 42, 95, 0.95), rgba(18, 2, 7, 0.95))',
-            borderBottom: '1px solid var(--neon-red)',
-            padding: '0.6rem 1.5rem',
-            zIndex: 99990,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
-            animation: 'fadeIn 0.3s ease'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', color: '#fff', fontSize: '0.88rem', fontFamily: 'var(--font-mono)' }}>
-            <Lock size={18} color="#fff" />
-            <span>
-              <strong>PROCTORING ACTIVE:</strong> Fullscreen mode is required. Exiting (ESC) or switching tabs will register a strike (Max 2 warnings, 3rd = Disqualified).
-            </span>
-          </div>
-          <button
-            onClick={requestFullscreen}
-            className="cyber-btn"
-            style={{
-              padding: '0.35rem 0.9rem',
-              fontSize: '0.8rem',
-              background: '#fff',
-              color: '#000',
-              borderColor: '#fff',
-              fontWeight: '700'
-            }}
-          >
-            <Maximize size={14} /> ENTER FULLSCREEN
-          </button>
         </div>
       )}
 

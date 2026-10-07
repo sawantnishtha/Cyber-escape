@@ -16,7 +16,8 @@ export const DEMO_TEAMS = [
   { id: 'team-012', team_name: 'TEAM MU', team_key_hash: 'CE-DEMO-012', current_round: 1, status: 'active' },
   { id: 'team-013', team_name: 'TEAM NEXUS', team_key_hash: 'CE-DEMO-013', current_round: 1, status: 'active' },
   { id: 'team-014', team_name: 'TEAM QUANTUM', team_key_hash: 'CE-DEMO-014', current_round: 1, status: 'active' },
-  { id: 'team-015', team_name: 'TEAM PHOENIX', team_key_hash: 'CE-DEMO-015', current_round: 1, status: 'active' }
+  { id: 'team-015', team_name: 'TEAM PHOENIX', team_key_hash: 'CE-DEMO-015', current_round: 1, status: 'active' },
+  { id: 'team-016', team_name: 'TEAM STUDENT 2', team_key_hash: 'CE-DEMO-016', current_round: 1, status: 'active' }
 ];
 
 // ROUND 1: 8 Multiple Choice Questions
@@ -216,151 +217,339 @@ export const DEMO_ROUND_2_CROSSWORDS = [
   }
 ];
 
-// ROUND 3: 4 Binary-to-ASCII questions
+// ROUND 3: 4 Binary-to-ASCII questions (2 to 3 technical words per challenge)
 export const DEMO_ROUND_3_QUESTIONS = [
   {
     round_number: 3,
     question_number: 1,
     question_type: 'binary',
-    difficulty: 'easy',
+    difficulty: 'medium',
     time_limit_seconds: 60,
     question_data: {
-      binary: '01000001',
-      instruction: 'Convert the 8-bit binary word into its corresponding uppercase ASCII character.'
+      binary: '01011010 01000101 01010010 01001111 00100000 01010100 01010010 01010101 01010011 01010100',
+      instruction: 'Decode the 2-word security architecture principle from the 8-bit ASCII bitstream (separate words with a single space).'
     },
-    correct_answer: 'A',
-    hint_data: '01000001 in decimal is 64 + 1 = 65, which corresponds to the first capital letter.'
+    correct_answer: 'ZERO TRUST',
+    hint_data: 'Word 1: Z-E-R-O (90, 69, 82, 79). Byte 5 is space (32). Word 2: T-R-U-S-T (84, 82, 85, 83, 84).'
   },
   {
     round_number: 3,
     question_number: 2,
     question_type: 'binary',
-    difficulty: 'easy',
+    difficulty: 'medium',
     time_limit_seconds: 60,
     question_data: {
-      binary: '01000010',
-      instruction: 'Convert the 8-bit binary word into its corresponding uppercase ASCII character.'
+      binary: '01000011 01011001 01000010 01000101 01010010 00100000 01000100 01000101 01000110 01000101 01001110 01010011 01000101',
+      instruction: 'Decode the 2-word defensive cybersecurity phrase from the incoming 8-bit stream.'
     },
-    correct_answer: 'B',
-    hint_data: '01000010 in decimal is 64 + 2 = 66.'
+    correct_answer: 'CYBER DEFENSE',
+    hint_data: 'Word 1 is C-Y-B-E-R (67, 89, 66, 69, 82). Word 2 is D-E-F-E-N-S-E (68, 69, 70, 69, 78, 83, 69).'
   },
   {
     round_number: 3,
     question_number: 3,
     question_type: 'binary',
-    difficulty: 'medium',
+    difficulty: 'hard',
     time_limit_seconds: 60,
     question_data: {
-      binary: '01000011',
-      instruction: 'Convert the 8-bit binary word into its corresponding uppercase ASCII character.'
+      binary: '01010011 01000101 01000011 01010101 01010010 01000101 00100000 01010010 01001111 01001111 01010100 00100000 01001011 01000101 01011001',
+      instruction: 'Decode the 3-word cryptographic root credential phrase from the 8-bit binary matrix.'
     },
-    correct_answer: 'C',
-    hint_data: '01000011 in decimal is 64 + 2 + 1 = 67.'
+    correct_answer: 'SECURE ROOT KEY',
+    hint_data: 'Three words: S-E-C-U-R-E (83, 69, 67, 85, 82, 69), R-O-O-T (82, 79, 79, 84), and K-E-Y (75, 69, 89).'
   },
   {
     round_number: 3,
     question_number: 4,
     question_type: 'binary',
-    difficulty: 'medium',
+    difficulty: 'hard',
     time_limit_seconds: 60,
     question_data: {
-      binary: '01000100',
-      instruction: 'Convert the 8-bit binary word into its corresponding uppercase ASCII character.'
+      binary: '01000001 01000011 01000011 01000101 01010011 01010011 00100000 01000100 01000101 01001110 01001001 01000101 01000100 00100000 01001100 01001111 01000011 01001011',
+      instruction: 'Decode the 3-word system lockdown authorization phrase from the binary bitstream.'
     },
-    correct_answer: 'D',
-    hint_data: '01000100 in decimal is 64 + 4 = 68.'
+    correct_answer: 'ACCESS DENIED LOCK',
+    hint_data: 'Three words: A-C-C-E-S-S (65, 67, 67, 69, 83, 83), D-E-N-I-E-D (68, 69, 78, 73, 69, 68), and L-O-C-K (76, 79, 67, 75).'
   }
 ];
 
-// ROUND 4: 4 Coding questions with blanks in C++, Python, Java
+// ROUND 4: 4 Multi-Language Logic Problems (20-30 lines of code, 3 to 4 blanks)
 export const DEMO_ROUND_4_QUESTIONS = [
   {
     round_number: 4,
     question_number: 1,
     question_type: 'code_fill',
-    difficulty: 'easy',
+    difficulty: 'medium',
     time_limit_seconds: 90,
     question_data: {
-      title: 'Calculate Sum of Two Operands',
-      description: 'Fill in the blanks to correctly sum variable a with variable b and output the result.',
-      blanksCount: 2,
-      labels: ['First operand variable', 'Output variable'],
+      title: 'Cryptographic Stream Substitution (Caesar Shift Cipher)',
+      description: 'Inspect the stream cipher subroutine. Fill in the shift key variable, alphabet modulo wrap constant, and unmodified character assignment.',
+      blanksCount: 3,
+      labels: ['Key shift variable', 'Alphabet modulus wrap constant', 'Unmodified character variable'],
       snippets: {
-        cpp: `int a = 5;
-int b = 3;
-int sum = /* blank_0 */ + b;
-cout << /* blank_1 */;`,
-        python: `a = 5
-b = 3
-sum = /* blank_0 */ + b
-print(/* blank_1 */)`,
-        java: `int a = 5;
-int b = 3;
-int sum = /* blank_0 */ + b;
-System.out.println(/* blank_1 */);`
+        cpp: `#include <iostream>
+#include <string>
+using namespace std;
+
+// Encrypt uppercase plaintext buffer with Caesar rotation
+string encryptBuffer(string buffer, int shift) {
+    string cipherText = "";
+    int length = buffer.length();
+
+    for (int i = 0; i < length; i++) {
+        char ch = buffer[i];
+        if (ch >= 'A' && ch <= 'Z') {
+            int base = 'A';
+            int offset = ch - base;
+            // Apply rotation and wrap within 26 letters
+            int shifted = (offset + /* blank_0 */) % /* blank_1 */;
+            char encryptedChar = (char)(base + shifted);
+            cipherText += encryptedChar;
+        } else {
+            // Keep non-alphabet characters unchanged
+            cipherText += /* blank_2 */;
+        }
+    }
+    return cipherText;
+}
+
+int main() {
+    cout << encryptBuffer("CYBER", 3);
+    return 0;
+}`,
+        python: `# Encrypt uppercase plaintext buffer with Caesar rotation
+def encrypt_buffer(buffer_str, shift):
+    cipher_text = []
+    length = len(buffer_str)
+
+    for i in range(length):
+        ch = buffer_str[i]
+        if 'A' <= ch <= 'Z':
+            base = ord('A')
+            offset = ord(ch) - base
+            # Apply rotation and wrap within 26 letters
+            shifted = (offset + /* blank_0 */) % /* blank_1 */
+            encrypted_char = chr(base + shifted)
+            cipher_text.append(encrypted_char)
+        else:
+            # Keep non-alphabet characters unchanged
+            cipher_text.append(/* blank_2 */)
+
+    return "".join(cipher_text)
+
+if __name__ == "__main__":
+    print(encrypt_buffer("CYBER", 3))`,
+        java: `public class CaesarCipher {
+    // Encrypt uppercase plaintext buffer with Caesar rotation
+    public static String encryptBuffer(String buffer, int shift) {
+        StringBuilder cipherText = new StringBuilder();
+        int length = buffer.length();
+
+        for (int i = 0; i < length; i++) {
+            char ch = buffer.charAt(i);
+            if (ch >= 'A' && ch <= 'Z') {
+                int base = 'A';
+                int offset = ch - base;
+                // Apply rotation and wrap within 26 letters
+                int shifted = (offset + /* blank_0 */) % /* blank_1 */;
+                char encryptedChar = (char)(base + shifted);
+                cipherText.append(encryptedChar);
+            } else {
+                // Keep non-alphabet characters unchanged
+                cipherText.append(/* blank_2 */);
+            }
+        }
+        return cipherText.toString();
+    }
+
+    public static void main(String[] args) {
+        System.out.println(encryptBuffer("CYBER", 3));
+    }
+}`
       }
     },
-    correct_answer: 'a,sum',
-    hint_data: 'The first blank is variable a; the second blank outputs the sum variable.'
+    correct_answer: 'shift,26,ch',
+    hint_data: 'Blank 0 applies variable shift; Blank 1 wraps by 26 letters; Blank 2 appends unchanged ch.'
   },
   {
     round_number: 4,
     question_number: 2,
     question_type: 'code_fill',
-    difficulty: 'easy',
+    difficulty: 'medium',
     time_limit_seconds: 90,
     question_data: {
-      title: 'Ternary Maximum Comparison',
-      description: 'Complete the comparison condition to pick the larger number between x and y.',
-      blanksCount: 2,
-      labels: ['Comparison operator', 'Alternate value'],
+      title: 'Transmission Packet Checksum Accumulator (RFC 1071)',
+      description: 'Complete the loop iteration variable, 16-bit fold-over mask constant, and output return variable for internet packet verification.',
+      blanksCount: 3,
+      labels: ['Loop index variable', '16-bit fold mask constant (hex)', 'Output checksum variable'],
       snippets: {
-        cpp: `int x = 10, y = 20;
-int max_val = (x /* blank_0 */ y) ? x : /* blank_1 */;
-cout << max_val;`,
-        python: `x = 10
-y = 20
-max_val = x if x /* blank_0 */ y else /* blank_1 */
-print(max_val)`,
-        java: `int x = 10, y = 20;
-int max_val = (x /* blank_0 */ y) ? x : /* blank_1 */;
-System.out.println(max_val);`
+        cpp: `#include <iostream>
+#include <vector>
+using namespace std;
+
+// Calculate RFC 1071 style 16-bit packet checksum
+unsigned short computeChecksum(const vector<int>& packet) {
+    unsigned long sum = 0;
+    int length = packet.size();
+
+    for (int i = 0; i < length; /* blank_0 */++) {
+        sum += packet[i];
+        // Fold 32-bit overflow carries back into lower 16 bits
+        while ((sum >> 16) > 0) {
+            sum = (sum & /* blank_1 */) + (sum >> 16);
+        }
+    }
+
+    // Bitwise 1's complement of accumulated sum
+    unsigned short checksum = ~sum;
+    return /* blank_2 */;
+}
+
+int main() {
+    vector<int> packet = {0x4500, 0x003c, 0x1c46, 0x4000};
+    cout << hex << computeChecksum(packet);
+    return 0;
+}`,
+        python: `# Calculate RFC 1071 style 16-bit packet checksum
+def compute_checksum(packet):
+    acc_sum = 0
+    length = len(packet)
+    i = 0
+
+    while i < length:
+        acc_sum += packet[i]
+        # Fold 32-bit overflow carries back into lower 16 bits
+        while (acc_sum >> 16) > 0:
+            acc_sum = (acc_sum & /* blank_1 */) + (acc_sum >> 16)
+        /* blank_0 */ += 1
+
+    # Bitwise 1's complement of accumulated sum
+    checksum = ~acc_sum & 0xFFFF
+    return /* blank_2 */
+
+if __name__ == "__main__":
+    packet = [0x4500, 0x003c, 0x1c46, 0x4000]
+    print(hex(compute_checksum(packet)))`,
+        java: `public class PacketVerifier {
+    // Calculate RFC 1071 style 16-bit packet checksum
+    public static int computeChecksum(int[] packet) {
+        int sum = 0;
+        int length = packet.length;
+
+        for (int i = 0; i < length; /* blank_0 */++) {
+            sum += packet[i];
+            // Fold 32-bit overflow carries back into lower 16 bits
+            while ((sum >> 16) > 0) {
+                sum = (sum & /* blank_1 */) + (sum >> 16);
+            }
+        }
+
+        // Bitwise 1's complement of accumulated sum
+        int checksum = (~sum) & 0xFFFF;
+        return /* blank_2 */;
+    }
+
+    public static void main(String[] args) {
+        int[] packet = {0x4500, 0x003c, 0x1c46, 0x4000};
+        System.out.println(Integer.toHexString(computeChecksum(packet)));
+    }
+}`
       }
     },
-    correct_answer: '>,y',
-    hint_data: 'Check if x is greater than y (>) and assign y when false.'
+    correct_answer: 'i,0xFFFF,checksum',
+    hint_data: 'Blank 0 is loop index i; Blank 1 is 16-bit mask 0xFFFF; Blank 2 returns checksum.'
   },
   {
     round_number: 4,
     question_number: 3,
     question_type: 'code_fill',
-    difficulty: 'medium',
+    difficulty: 'hard',
     time_limit_seconds: 90,
     question_data: {
-      title: 'Iterative Factorial Calculation',
-      description: 'Fill the loop boundary condition and multiplicative accumulator to compute n factorial.',
-      blanksCount: 2,
-      labels: ['Loop boundary operator / step', 'Accumulator operator'],
+      title: 'Cyclic Redundancy Check (CRC-8 Polynomial Generator)',
+      description: 'Fill the bit loop limit, most-significant-bit mask (0x80), bitwise XOR operator, and accumulated register variable.',
+      blanksCount: 4,
+      labels: ['Bits per byte count', 'MSB bitmask (hex)', 'Bitwise XOR operator', 'Accumulated CRC variable'],
       snippets: {
-        cpp: `int n = 5, fact = 1;
-for (int i = 1; i /* blank_0 */ n; i++) {
-    fact = fact /* blank_1 */ i;
+        cpp: `#include <iostream>
+#include <vector>
+using namespace std;
+
+// Compute 8-bit Cyclic Redundancy Check (CRC-8)
+unsigned char computeCRC8(const vector<unsigned char>& data, unsigned char poly) {
+    unsigned char crc = 0x00; // Initial CRC register
+
+    for (int i = 0; i < data.size(); i++) {
+        crc = crc ^ data[i]; // XOR input byte into register
+
+        for (int bit = 0; bit < /* blank_0 */; bit++) {
+            if (crc & /* blank_1 */) {
+                // MSB is 1: shift left and XOR with generator polynomial
+                crc = (crc << 1) /* blank_2 */ poly;
+            } else {
+                // MSB is 0: simple left shift
+                crc = (crc << 1);
+            }
+        }
+    }
+    return /* blank_3 */;
 }
-cout << fact;`,
-        python: `n = 5
-fact = 1
-for i in range(1, n /* blank_0 */ 1):
-    fact = fact /* blank_1 */ i
-print(fact)`,
-        java: `int n = 5, fact = 1;
-for (int i = 1; i /* blank_0 */ n; i++) {
-    fact = fact /* blank_1 */ i;
-}
-System.out.println(fact);`
+
+int main() {
+    vector<unsigned char> data = {0x01, 0x02, 0x03};
+    cout << hex << (int)computeCRC8(data, 0x07);
+    return 0;
+}`,
+        python: `# Compute 8-bit Cyclic Redundancy Check (CRC-8)
+def compute_crc8(data, poly):
+    crc = 0x00  # Initial CRC register
+
+    for byte in data:
+        crc = crc ^ byte  # XOR input byte into register
+
+        for bit in range(/* blank_0 */):
+            if crc & /* blank_1 */:
+                # MSB is 1: shift left and XOR with generator polynomial
+                crc = ((crc << 1) /* blank_2 */ poly) & 0xFF
+            else:
+                # MSB is 0: simple left shift
+                crc = (crc << 1) & 0xFF
+
+    return /* blank_3 */
+
+if __name__ == "__main__":
+    data = [0x01, 0x02, 0x03]
+    print(hex(compute_crc8(data, 0x07)))`,
+        java: `public class CRCValidator {
+    // Compute 8-bit Cyclic Redundancy Check (CRC-8)
+    public static int computeCRC8(int[] data, int poly) {
+        int crc = 0x00; // Initial CRC register
+
+        for (int i = 0; i < data.length; i++) {
+            crc = (crc ^ data[i]) & 0xFF; // XOR input byte into register
+
+            for (int bit = 0; bit < /* blank_0 */; bit++) {
+                if ((crc & /* blank_1 */) != 0) {
+                    // MSB is 1: shift left and XOR with generator polynomial
+                    crc = ((crc << 1) /* blank_2 */ poly) & 0xFF;
+                } else {
+                    // MSB is 0: simple left shift
+                    crc = (crc << 1) & 0xFF;
+                }
+            }
+        }
+        return /* blank_3 */;
+    }
+
+    public static void main(String[] args) {
+        int[] data = {0x01, 0x02, 0x03};
+        System.out.println(Integer.toHexString(computeCRC8(data, 0x07)));
+    }
+}`
       }
     },
-    correct_answer: '<=,*',
-    hint_data: 'Loop runs while i <= n and multiplies using * operator.'
+    correct_answer: '8,0x80,^,crc',
+    hint_data: 'Blank 0 is 8 bits; Blank 1 masks MSB with 0x80; Blank 2 is XOR (^); Blank 3 returns crc.'
   },
   {
     round_number: 4,
@@ -369,37 +558,119 @@ System.out.println(fact);`
     difficulty: 'hard',
     time_limit_seconds: 90,
     question_data: {
-      title: 'Overflow-Safe Binary Search Midpoint',
-      description: 'Fill in the blanks to calculate the binary search midpoint without triggering 32-bit integer overflow.',
-      blanksCount: 2,
-      labels: ['Upper bound variable', 'Arithmetic division operator'],
+      title: 'Secure Ring Buffer Bounds Guard & Pointer Wrap',
+      description: 'Fill in the current counter, capacity bound, modulo circular wraparound operator, and boolean success return indicator.',
+      blanksCount: 4,
+      labels: ['Current elements counter', 'Buffer maximum capacity', 'Circular index modulo operator', 'Boolean success return'],
       snippets: {
-        cpp: `int low = 0, high = 100;
-int mid = low + (/* blank_0 */ - low) /* blank_1 */ 2;
-cout << mid;`,
-        python: `low = 0
-high = 100
-mid = low + (/* blank_0 */ - low) /* blank_1 */ 2
-print(mid)`,
-        java: `int low = 0, high = 100;
-int mid = low + (/* blank_0 */ - low) /* blank_1 */ 2;
-System.out.println(mid);`
+        cpp: `#include <iostream>
+#include <vector>
+using namespace std;
+
+class SecureRingBuffer {
+private:
+    vector<int> buffer;
+    int head = 0;
+    int tail = 0;
+    int count = 0;
+    int capacity;
+
+public:
+    SecureRingBuffer(int cap) : capacity(cap), buffer(cap) {}
+
+    bool push(int data) {
+        // Prevent buffer overrun vulnerability
+        if (/* blank_0 */ >= /* blank_1 */) {
+            return false; // Buffer overflow guard triggered
+        }
+
+        buffer[tail] = data;
+        // Advance tail with circular wraparound
+        tail = (tail + 1) /* blank_2 */ capacity;
+        count++;
+        return /* blank_3 */;
+    }
+
+    int size() { return count; }
+};
+
+int main() {
+    SecureRingBuffer q(5);
+    cout << (q.push(42) ? "OK" : "OVERFLOW");
+    return 0;
+}`,
+        python: `class SecureRingBuffer:
+    def __init__(self, cap):
+        self.capacity = cap
+        self.buffer = [0] * cap
+        self.head = 0
+        self.tail = 0
+        self.count = 0
+
+    def push(self, data):
+        # Prevent buffer overrun vulnerability
+        if self./* blank_0 */ >= self./* blank_1 */:
+            return False  # Buffer overflow guard triggered
+
+        self.buffer[self.tail] = data
+        # Advance tail with circular wraparound
+        self.tail = (self.tail + 1) /* blank_2 */ self.capacity
+        self.count += 1
+        return /* blank_3 */
+
+    def size(self):
+        return self.count
+
+if __name__ == "__main__":
+    q = SecureRingBuffer(5)
+    print("OK" if q.push(42) else "OVERFLOW")`,
+        java: `public class SecureRingBuffer {
+    private int[] buffer;
+    private int head = 0;
+    private int tail = 0;
+    private int count = 0;
+    private int capacity;
+
+    public SecureRingBuffer(int cap) {
+        this.capacity = cap;
+        this.buffer = new int[cap];
+    }
+
+    public boolean push(int data) {
+        // Prevent buffer overrun vulnerability
+        if (/* blank_0 */ >= /* blank_1 */) {
+            return false; // Buffer overflow guard triggered
+        }
+
+        buffer[tail] = data;
+        // Advance tail with circular wraparound
+        tail = (tail + 1) /* blank_2 */ capacity;
+        count++;
+        return /* blank_3 */;
+    }
+
+    public static void main(String[] args) {
+        SecureRingBuffer q = new SecureRingBuffer(5);
+        System.out.println(q.push(42) ? "OK" : "OVERFLOW");
+    }
+}`
       }
     },
-    correct_answer: 'high,/',
-    hint_data: 'The classic formula is low + (high - low) / 2.'
+    correct_answer: 'count,capacity,%,true',
+    hint_data: 'Blank 0 is count; Blank 1 is capacity; Blank 2 is modulo (%); Blank 3 returns true.'
   }
 ];
 
-// ASCII Table for quick reference in Round 3
+// ASCII Table for quick reference in Round 3 (including SPACE)
 export const ASCII_REFERENCE_TABLE = [
+  { char: 'SPACE', dec: 32, bin: '00100000' },
   { char: 'A', dec: 65, bin: '01000001' },
   { char: 'B', dec: 66, bin: '01000010' },
   { char: 'C', dec: 67, bin: '01000011' },
   { char: 'D', dec: 68, bin: '01000100' },
   { char: 'E', dec: 69, bin: '01000101' },
   { char: 'F', dec: 70, bin: '01000110' },
-  { char: 'G', dec: 71, dec_str: '71', bin: '01000111' },
+  { char: 'G', dec: 71, bin: '01000111' },
   { char: 'H', dec: 72, bin: '01001000' },
   { char: 'I', dec: 73, bin: '01001001' },
   { char: 'J', dec: 74, bin: '01001010' },

@@ -26,11 +26,34 @@ export function CodeRevealModal({
     e.preventDefault();
     if (!inputCode.trim()) return;
 
+    const cleanInput = inputCode.trim().toUpperCase();
+
+    // Check if team entered the literal scrambled sequence
+    const scrambledSequences = {
+      1: 'RCYB',
+      2: 'HETC',
+      3: 'ETYB',
+      4: 'DOCE'
+    };
+
+    const targetKeywords = {
+      1: 'CYBR',
+      2: 'TECH',
+      3: 'BYTE',
+      4: 'CODE'
+    };
+
+    if (scrambledSequences[roundNumber] && cleanInput === scrambledSequences[roundNumber]) {
+      soundEffects.playAccessDenied();
+      setErrorMsg(`⚠️ '${cleanInput}' is the scrambled sequence! Unscramble the letters to enter the valid English tech keyword (e.g. ${targetKeywords[roundNumber] || 'CODE'}).`);
+      return;
+    }
+
     setIsVerifying(true);
     setErrorMsg('');
 
     try {
-      const res = await codeService.verifyCode(teamId, roundNumber, inputCode.trim());
+      const res = await codeService.verifyCode(teamId, roundNumber, cleanInput);
       if (res && res.valid) {
         soundEffects.playKeyUnlocked();
         setIsVerified(true);
@@ -39,7 +62,7 @@ export function CodeRevealModal({
         }
       } else {
         soundEffects.playAccessDenied();
-        setErrorMsg(res?.error || 'Invalid code sequence. Enter the exact 4-letter key you assembled.');
+        setErrorMsg(res?.error || `Invalid key sequence. Rearrange the 4 unlocked letters into the correct English tech keyword.`);
       }
     } catch (err) {
       soundEffects.playAccessDenied();
@@ -95,7 +118,7 @@ export function CodeRevealModal({
                   textTransform: 'uppercase',
                   color: isCodeFullyUnlocked ? 'var(--neon-green)' : 'var(--neon-amber)',
                   letterSpacing: '1px',
-                  marginBottom: '0.8rem',
+                  marginBottom: '0.4rem',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -104,13 +127,33 @@ export function CodeRevealModal({
               >
                 {isCodeFullyUnlocked ? (
                   <>
-                    <Unlock size={14} /> COMPLETE 4-LETTER CODE ASSEMBLED
+                    <Unlock size={14} /> COMPLETE 4-LETTER ANAGRAM ASSEMBLED
                   </>
                 ) : (
                   <>
                     <Lock size={14} /> DECRYPTING CODE SEGMENTS ({unlockedCodeLetters.length}/{totalLettersNeeded})
                   </>
                 )}
+              </div>
+
+              {/* Anagram Shuffled Badge */}
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.25rem 0.75rem',
+                  borderRadius: '12px',
+                  background: 'rgba(255, 183, 0, 0.12)',
+                  border: '1px solid rgba(255, 183, 0, 0.4)',
+                  color: 'var(--neon-amber)',
+                  fontSize: '0.74rem',
+                  fontFamily: 'var(--font-mono)',
+                  marginBottom: '1rem',
+                  letterSpacing: '0.5px'
+                }}
+              >
+                🔀 SHUFFLED KEY: UNSCRAMBLE LETTERS TO PASS
               </div>
 
               {/* Character blocks */}
@@ -122,19 +165,19 @@ export function CodeRevealModal({
                     <div
                       key={idx}
                       style={{
-                        width: '54px',
-                        height: '62px',
+                        width: '56px',
+                        height: '64px',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        background: hasChar ? 'rgba(0, 255, 136, 0.1)' : 'rgba(10, 16, 32, 0.9)',
+                        background: hasChar ? 'rgba(0, 255, 136, 0.12)' : 'rgba(10, 16, 32, 0.9)',
                         border: `2px solid ${hasChar ? 'var(--neon-green)' : 'var(--border-subtle)'}`,
                         borderRadius: '8px',
                         fontFamily: 'var(--font-mono)',
-                        fontSize: '1.8rem',
+                        fontSize: '1.9rem',
                         fontWeight: '700',
                         color: hasChar ? 'var(--neon-green)' : 'var(--text-dim)',
-                        boxShadow: hasChar ? '0 0 12px var(--neon-green-glow)' : 'none',
+                        boxShadow: hasChar ? '0 0 14px var(--neon-green-glow)' : 'none',
                         transition: 'all 0.3s ease'
                       }}
                     >
@@ -151,20 +194,20 @@ export function CodeRevealModal({
                 <label
                   style={{
                     display: 'block',
-                    fontSize: '0.8rem',
+                    fontSize: '0.78rem',
                     textTransform: 'uppercase',
                     color: 'var(--text-muted)',
                     marginBottom: '0.5rem',
                     fontFamily: 'var(--font-mono)'
                   }}
                 >
-                  ENTER ASSEMBLED 4-LETTER SECURITY KEY
+                  ENTER UNSCRAMBLED 4-LETTER KEYWORD
                 </label>
                 <div style={{ display: 'flex', gap: '0.6rem' }}>
                   <input
                     type="text"
                     className="cyber-input"
-                    placeholder="ENTER 4-LETTER KEY"
+                    placeholder="ENTER UNSCRAMBLED WORD"
                     value={inputCode}
                     onChange={(e) => setInputCode(e.target.value.toUpperCase())}
                     style={{ letterSpacing: '3px', textTransform: 'uppercase', fontWeight: '700', textAlign: 'center' }}
@@ -176,7 +219,7 @@ export function CodeRevealModal({
                     disabled={isVerifying || !inputCode.trim()}
                     style={{ whiteSpace: 'nowrap' }}
                   >
-                    {isVerifying ? 'VERIFYING...' : 'DECRYPT & SUBMIT'}
+                    {isVerifying ? 'VERIFYING...' : 'VERIFY KEY'}
                   </button>
                 </div>
               </div>
@@ -228,7 +271,7 @@ export function CodeRevealModal({
             </div>
 
             <p style={{ color: 'var(--text-muted)', fontSize: '0.92rem', lineHeight: '1.6', marginBottom: '2rem' }}>
-              Your round submission has been securely locked with Central Command. You are now transitioning to the evaluation waiting room.
+              Your round submission and security key have been verified and locked with Central Command. You are now transitioning to the evaluation waiting room.
             </p>
 
             <button
@@ -240,7 +283,13 @@ export function CodeRevealModal({
                 }
               }}
               className="cyber-btn cyber-btn-primary"
-              style={{ width: '100%', padding: '0.85rem', fontSize: '1rem', justifyContent: 'center' }}
+              style={{
+                width: '100%',
+                padding: '0.85rem',
+                fontSize: '1rem',
+                justifyContent: 'center',
+                fontWeight: '700'
+              }}
             >
               PROCEED TO WAITING ROOM <ArrowRight size={18} />
             </button>

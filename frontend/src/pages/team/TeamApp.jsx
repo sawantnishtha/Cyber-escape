@@ -91,6 +91,8 @@ export function TeamApp({ team, gameSession, onTeamStateChange }) {
         const thisRoundWord = words.find((w) => w.round_number === currentRound);
         if (thisRoundWord) {
           setCompletedRoundWaiting(currentRound);
+        } else {
+          setCompletedRoundWaiting(null);
         }
       } catch (err) {
         // ignore
@@ -140,7 +142,7 @@ export function TeamApp({ team, gameSession, onTeamStateChange }) {
     }
     if (currentState === GAME_STATES.R1_ACTIVE) {
       if (completedRoundWaiting === 1) {
-        return <ResultWaitingRoom team={currentTeam} roundNumber={1} gameSession={gameSession} />;
+        return <WaitingRoom team={currentTeam} roundNumber={1} gameSession={gameSession} isCompletedSubmission={true} />;
       }
       return <Round1Page team={currentTeam} onRoundComplete={() => setCompletedRoundWaiting(1)} />;
     }
@@ -154,7 +156,7 @@ export function TeamApp({ team, gameSession, onTeamStateChange }) {
     }
     if (currentState === GAME_STATES.R2_ACTIVE) {
       if (completedRoundWaiting === 2) {
-        return <ResultWaitingRoom team={currentTeam} roundNumber={2} gameSession={gameSession} />;
+        return <WaitingRoom team={currentTeam} roundNumber={2} gameSession={gameSession} isCompletedSubmission={true} />;
       }
       return <Round2Page team={currentTeam} onRoundComplete={() => setCompletedRoundWaiting(2)} />;
     }
@@ -168,7 +170,7 @@ export function TeamApp({ team, gameSession, onTeamStateChange }) {
     }
     if (currentState === GAME_STATES.R3_ACTIVE) {
       if (completedRoundWaiting === 3) {
-        return <ResultWaitingRoom team={currentTeam} roundNumber={3} gameSession={gameSession} />;
+        return <WaitingRoom team={currentTeam} roundNumber={3} gameSession={gameSession} isCompletedSubmission={true} />;
       }
       return <Round3Page team={currentTeam} onRoundComplete={() => setCompletedRoundWaiting(3)} />;
     }
@@ -182,7 +184,7 @@ export function TeamApp({ team, gameSession, onTeamStateChange }) {
     }
     if (currentState === GAME_STATES.R4_ACTIVE) {
       if (completedRoundWaiting === 4) {
-        return <ResultWaitingRoom team={currentTeam} roundNumber={4} gameSession={gameSession} />;
+        return <WaitingRoom team={currentTeam} roundNumber={4} gameSession={gameSession} isCompletedSubmission={true} />;
       }
       return <Round4Page team={currentTeam} onRoundComplete={() => setCompletedRoundWaiting(4)} />;
     }

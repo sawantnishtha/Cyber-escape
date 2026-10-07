@@ -52,12 +52,13 @@ export function Round4Page({ team, onRoundComplete }) {
   }, [team?.id]);
 
   function updateCodeLetters(solvedSet) {
-    const fullCode = ['C', 'O', 'D', 'E'];
+    // 4-letter key 'CODE' unlocked in scrambled anagram format ['D', 'O', 'C', 'E']
+    const scrambled = GAME_CONFIG.ROUND_4.SCRAMBLED_LETTERS || ['D', 'O', 'C', 'E'];
     const letters = [];
-    if (solvedSet.has(1)) letters.push(fullCode[0]);
-    if (solvedSet.has(2)) letters.push(fullCode[1]);
-    if (solvedSet.has(3)) letters.push(fullCode[2]);
-    if (solvedSet.has(4)) letters.push(fullCode[3]);
+    if (solvedSet.has(1)) letters.push(scrambled[0]);
+    if (solvedSet.has(2)) letters.push(scrambled[1]);
+    if (solvedSet.has(3)) letters.push(scrambled[2]);
+    if (solvedSet.has(4)) letters.push(scrambled[3]);
     setUnlockedCodeLetters(letters);
   }
 
@@ -329,26 +330,34 @@ export function Round4Page({ team, onRoundComplete }) {
               border: '1px solid var(--border-subtle)',
               padding: '1.2rem 1.5rem',
               fontFamily: 'var(--font-mono)',
-              fontSize: '0.95rem',
-              lineHeight: '1.7',
+              fontSize: '0.88rem',
+              lineHeight: '1.6',
               color: '#d1d5db',
               marginBottom: '1.8rem',
+              maxHeight: '420px',
+              overflowY: 'auto',
               position: 'relative'
             }}
           >
             <div
               style={{
-                position: 'absolute',
-                top: '8px',
-                right: '12px',
-                fontSize: '0.7rem',
+                position: 'sticky',
+                top: 0,
+                display: 'flex',
+                justifyContent: 'space-between',
+                paddingBottom: '0.5rem',
+                marginBottom: '0.6rem',
+                borderBottom: '1px solid rgba(255,255,255,0.08)',
+                background: '#040711',
+                fontSize: '0.72rem',
                 color: 'var(--text-dim)',
                 textTransform: 'uppercase'
               }}
             >
-              {selectedLang}
+              <span>// {selectedLang.toUpperCase()} SOURCE IMPLEMENTATION</span>
+              <span>{snippet.split('\n').length} LINES</span>
             </div>
-            <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{snippet}</pre>
+            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', lineHeight: '1.55' }}>{snippet}</pre>
           </div>
 
           {/* Interactive Blanks Fill Area */}

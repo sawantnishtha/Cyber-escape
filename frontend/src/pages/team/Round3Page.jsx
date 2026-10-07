@@ -52,12 +52,13 @@ export function Round3Page({ team, onRoundComplete }) {
   }, [team?.id]);
 
   function updateCodeLetters(solvedSet) {
-    const fullCode = ['B', 'Y', 'T', 'E'];
+    // 4-letter key 'BYTE' unlocked in scrambled anagram format ['E', 'T', 'Y', 'B']
+    const scrambled = GAME_CONFIG.ROUND_3.SCRAMBLED_LETTERS || ['E', 'T', 'Y', 'B'];
     const letters = [];
-    if (solvedSet.has(1)) letters.push(fullCode[0]);
-    if (solvedSet.has(2)) letters.push(fullCode[1]);
-    if (solvedSet.has(3)) letters.push(fullCode[2]);
-    if (solvedSet.has(4)) letters.push(fullCode[3]);
+    if (solvedSet.has(1)) letters.push(scrambled[0]);
+    if (solvedSet.has(2)) letters.push(scrambled[1]);
+    if (solvedSet.has(3)) letters.push(scrambled[2]);
+    if (solvedSet.has(4)) letters.push(scrambled[3]);
     setUnlockedCodeLetters(letters);
   }
 
@@ -89,13 +90,14 @@ export function Round3Page({ team, onRoundComplete }) {
     soundEffects.playClick();
     const currentQ = questions[currentIndex];
     const timeTaken = GAME_CONFIG.ROUND_3.DURATION_SECONDS - timerSeconds;
+    const cleanAnswer = submittedAnswer.trim().replace(/\s+/g, ' ');
 
     try {
       const res = await questionService.submitAnswer(
         team.id,
         3,
         currentQ.question_number,
-        submittedAnswer.trim(),
+        cleanAnswer,
         timeTaken
       );
 
@@ -351,46 +353,53 @@ export function Round3Page({ team, onRoundComplete }) {
           {/* Binary Display Matrix */}
           <div
             style={{
-              padding: '2.5rem 1.5rem',
+              padding: '2rem 1.5rem',
               borderRadius: '8px',
               background: '#040711',
               border: '2px solid var(--neon-cyan)',
               boxShadow: '0 0 20px var(--neon-cyan-glow)',
               textAlign: 'center',
-              marginBottom: '2rem'
+              marginBottom: '1.8rem'
             }}
           >
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', marginBottom: '0.5rem' }}>
-              INCOMING 8-BIT CIPHER STREAM
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', marginBottom: '0.6rem' }}>
+              INCOMING 8-BIT CIPHER STREAM // MULTI-WORD PROTOCOL
             </div>
             <div
               className="font-mono glow-cyan"
               style={{
-                fontSize: 'clamp(2rem, 5vw, 3.4rem)',
-                letterSpacing: '10px',
-                fontWeight: '700'
+                fontSize: 'clamp(1.1rem, 2.2vw, 1.5rem)',
+                letterSpacing: '2px',
+                fontWeight: '700',
+                lineHeight: '2',
+                wordBreak: 'break-word',
+                maxWidth: '900px',
+                margin: '0 auto'
               }}
             >
               {currentQ.question_data.binary}
             </div>
+            <div style={{ marginTop: '0.6rem', fontSize: '0.74rem', color: 'var(--neon-amber)', fontFamily: 'var(--font-mono)' }}>
+              TIP: Space byte is 00100000 (dec 32). Separate decoded words with a single space.
+            </div>
           </div>
 
           {/* Answer Input */}
-          <form onSubmit={handleSubmitAnswer} style={{ maxWidth: '420px', margin: '0 auto' }}>
+          <form onSubmit={handleSubmitAnswer} style={{ maxWidth: '520px', margin: '0 auto' }}>
             <div style={{ display: 'flex', gap: '0.8rem' }}>
               <input
                 type="text"
-                maxLength={4}
+                maxLength={40}
                 className="cyber-input"
-                placeholder="DECRYPTED CHAR"
+                placeholder="DECRYPTED PHRASE (E.G. ZERO TRUST)"
                 value={submittedAnswer}
                 onChange={(e) => setSubmittedAnswer(e.target.value.toUpperCase())}
                 disabled={submissionFeedback === 'correct' || attemptsRemaining <= 0}
                 style={{
-                  fontSize: '1.4rem',
+                  fontSize: '1.15rem',
                   fontWeight: '700',
                   textAlign: 'center',
-                  letterSpacing: '4px',
+                  letterSpacing: '2px',
                   textTransform: 'uppercase'
                 }}
                 autoFocus

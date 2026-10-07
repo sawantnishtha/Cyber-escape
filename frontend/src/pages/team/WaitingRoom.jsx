@@ -1,37 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Clock, Shield, AlertCircle, CheckCircle2, Users, KeyRound } from 'lucide-react';
+import React from 'react';
+import { Clock, Shield, AlertCircle, CheckCircle2, Users } from 'lucide-react';
 import { roundService } from '../../services/roundService';
-import { teamService } from '../../services/teamService';
-import { GAME_CONFIG } from '../../constants/gameConfig';
 
-export function WaitingRoom({ team, roundNumber, gameSession }) {
-  const [unlockedWords, setUnlockedWords] = useState([]);
-
-  useEffect(() => {
-    async function loadWords() {
-      if (!team?.id) return;
-      try {
-        const words = await teamService.getTeamWords(team.id);
-        if (words && words.length > 0) {
-          setUnlockedWords(words);
-        } else if (roundNumber > 1) {
-          // Fallback to configured words for previously cleared rounds
-          const prev = [];
-          for (let r = 1; r < roundNumber; r++) {
-            const conf = GAME_CONFIG[`ROUND_${r}`];
-            if (conf?.SECRET_WORD) {
-              prev.push({ round_number: r, word: conf.SECRET_WORD });
-            }
-          }
-          setUnlockedWords(prev);
-        }
-      } catch (err) {
-        // ignore
-      }
-    }
-    loadWords();
-  }, [team?.id, roundNumber]);
-
+export function WaitingRoom({ team, roundNumber, gameSession, isCompletedSubmission = false }) {
   const roundConfig = roundService.getRoundConfig(roundNumber) || {
     TITLE: `ROUND 0${roundNumber}`,
     SUBTITLE: 'Security Protocol Layer',
@@ -74,28 +45,30 @@ export function WaitingRoom({ team, roundNumber, gameSession }) {
             gap: '0.5rem',
             padding: '0.35rem 1rem',
             borderRadius: '20px',
-            background: 'rgba(0, 243, 255, 0.1)',
-            border: '1px solid rgba(0, 243, 255, 0.3)',
-            color: 'var(--neon-cyan)',
+            background: isCompletedSubmission ? 'rgba(0, 255, 136, 0.1)' : 'rgba(0, 243, 255, 0.1)',
+            border: isCompletedSubmission ? '1px solid rgba(0, 255, 136, 0.3)' : '1px solid rgba(0, 243, 255, 0.3)',
+            color: isCompletedSubmission ? 'var(--neon-green)' : 'var(--neon-cyan)',
             fontSize: '0.8rem',
             fontFamily: 'var(--font-mono)',
             marginBottom: '1rem',
             letterSpacing: '1px'
           }}
         >
-          <Shield size={14} /> ROUND 0{roundNumber} PREPARATION
+          {isCompletedSubmission ? <CheckCircle2 size={14} /> : <Shield size={14} />}
+          {isCompletedSubmission ? `ROUND 0${roundNumber} SUBMISSION RECORDED` : `ROUND 0${roundNumber} PREPARATION`}
         </div>
 
         {/* Round Title in CyberFont */}
         <h1
-          className="glow-cyan font-display"
+          className={isCompletedSubmission ? 'glow-green font-display' : 'glow-cyan font-display'}
           style={{
             fontSize: 'clamp(1.8rem, 4vw, 2.6rem)',
             letterSpacing: '4px',
-            marginBottom: '0.4rem'
+            marginBottom: '0.4rem',
+            color: isCompletedSubmission ? 'var(--neon-green)' : '#fff'
           }}
         >
-          {roundConfig.TITLE}
+          {isCompletedSubmission ? 'SUBMISSION VERIFIED' : roundConfig.TITLE}
         </h1>
 
         <div
@@ -108,8 +81,32 @@ export function WaitingRoom({ team, roundNumber, gameSession }) {
             fontFamily: 'var(--font-mono)'
           }}
         >
-          {roundConfig.SUBTITLE}
+          {isCompletedSubmission ? 'AWAITING OPERATOR RESULTS BROADCAST' : roundConfig.SUBTITLE}
         </div>
+
+        {isCompletedSubmission && (
+          <div
+            style={{
+              padding: '1.2rem',
+              borderRadius: '8px',
+              background: 'rgba(0, 255, 136, 0.08)',
+              border: '1px solid rgba(0, 255, 136, 0.35)',
+              marginBottom: '1.5rem',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '0.5rem'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', color: 'var(--neon-green)', fontWeight: '800', letterSpacing: '1px', textTransform: 'uppercase', fontSize: '0.9rem' }}>
+              <CheckCircle2 size={18} color="var(--neon-green)" />
+              KEY VERIFIED & RECORDED IN CENTRAL COMMAND
+            </div>
+            <div style={{ fontSize: '0.85rem', color: '#cbd5e1', fontFamily: 'var(--font-mono)', lineHeight: '1.5', maxWidth: '580px' }}>
+              Your answers and security code have been locked. Please remain on this screen — the official qualification scoreboard will be published here as soon as the game administrator broadcasts round results.
+            </div>
+          </div>
+        )}
 
         {/* Team Identity Indicator */}
         <div
@@ -131,59 +128,6 @@ export function WaitingRoom({ team, roundNumber, gameSession }) {
           </span>
         </div>
 
-        {/* VAULT: PREVIOUSLY UNLOCKED SECRET WORDS (ONLY IF PREVIOUS ROUNDS CLEARED) */}
-        {roundNumber > 1 && unlockedWords.length > 0 && (
-          <div
-            style={{
-              background: 'rgba(0, 255, 136, 0.06)',
-              border: '1px solid rgba(0, 255, 136, 0.3)',
-              borderRadius: '8px',
-              padding: '1.2rem',
-              marginBottom: '1.8rem',
-              textAlign: 'center'
-            }}
-          >
-            <div
-              style={{
-                fontSize: '0.75rem',
-                color: 'var(--neon-green)',
-                fontFamily: 'var(--font-mono)',
-                textTransform: 'uppercase',
-                letterSpacing: '1px',
-                marginBottom: '0.8rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.4rem',
-                fontWeight: '700'
-              }}
-            >
-              <KeyRound size={15} /> DECRYPTED SECRET WORDS VAULT (FROM QUALIFIED ROUNDS)
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.8rem', flexWrap: 'wrap' }}>
-              {unlockedWords.map((uw, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    background: 'rgba(9, 15, 30, 0.95)',
-                    border: '1px solid var(--neon-green)',
-                    borderRadius: '6px',
-                    padding: '0.5rem 1rem',
-                    boxShadow: '0 0 12px rgba(0, 255, 136, 0.2)'
-                  }}
-                >
-                  <div style={{ fontSize: '0.68rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
-                    ROUND 0{uw.round_number} WORD:
-                  </div>
-                  <div style={{ fontSize: '1.2rem', fontWeight: '900', color: 'var(--neon-green)', letterSpacing: '2px', fontFamily: 'var(--font-mono)' }}>
-                    {uw.word}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Mission Briefing */}
         <div

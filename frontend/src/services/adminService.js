@@ -33,13 +33,23 @@ export const adminService = {
     return simulatorEngine.updateAllTeamsStatus(status, roundNumber);
   },
 
-  // Confirm selection of teams advancing to the next round
+  // Step 1: Publish selected teams list (notifies teams on roster, secret word remains locked)
+  async publishRoundSelections(adminKey, roundNumber, selectedTeamIds) {
+    const apiRes = await adminApi.publishRoundSelections(adminKey, roundNumber, selectedTeamIds);
+
+    // Always sync simulator and broadcast
+    const simRes = simulatorEngine.publishRoundSelections(roundNumber, selectedTeamIds);
+    simulatorEngine.broadcast('SELECTIONS_PUBLISHED', { round: roundNumber, selectedCount: selectedTeamIds.length, selectedTeamIds });
+    return apiRes.success ? apiRes : simRes;
+  },
+
+  // Step 2: Confirm selection of teams advancing to the next round & unlock secret words
   async confirmRoundSelections(adminKey, roundNumber, selectedTeamIds) {
     const apiRes = await adminApi.confirmRoundSelections(adminKey, roundNumber, selectedTeamIds);
 
     // Always sync simulator and broadcast
     const simRes = simulatorEngine.confirmRoundSelections(roundNumber, selectedTeamIds);
-    simulatorEngine.broadcast('SELECTIONS_CONFIRMED', { round: roundNumber, selectedCount: selectedTeamIds.length });
+    simulatorEngine.broadcast('SELECTIONS_CONFIRMED', { round: roundNumber, selectedCount: selectedTeamIds.length, selectedTeamIds });
     return apiRes.data || simRes;
   },
 

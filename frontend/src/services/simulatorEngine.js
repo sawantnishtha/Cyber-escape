@@ -228,7 +228,12 @@ class SimulatorEngine {
       expected = q?.correct_answer || '';
     }
 
-    const isCorrect = String(expected).trim().toUpperCase() === String(submittedAnswer).trim().toUpperCase();
+    const cleanExpected = String(expected).trim().toUpperCase();
+    const cleanSubmitted = String(submittedAnswer).trim().toUpperCase();
+    const isCorrect =
+      cleanExpected === cleanSubmitted ||
+      cleanExpected.replace(/\s+/g, ' ') === cleanSubmitted.replace(/\s+/g, ' ') ||
+      cleanExpected.split(',').map((s) => s.trim()).join(',') === cleanSubmitted.split(',').map((s) => s.trim()).join(',');
 
     // Check attempts count for this team and question
     const prevAttempts = state.teamQuestions.filter(
@@ -339,7 +344,7 @@ class SimulatorEngine {
   }
 
   // Crossword completion in Round 2
-  submitCrosswordCompletion(teamId, crosswordIndex) {
+  submitCrosswordCompletion(teamId, crosswordIndex, timeTaken = 0) {
     const state = this.readState();
     if (!state) return { success: false };
 
@@ -352,7 +357,7 @@ class SimulatorEngine {
       attempt_number: 1,
       submitted_answer: 'SOLVED',
       is_correct: true,
-      time_taken_seconds: 0,
+      time_taken_seconds: timeTaken,
       submitted_at: new Date().toISOString()
     });
 
@@ -371,6 +376,7 @@ class SimulatorEngine {
     }
     state.roundResults[resultKey].questions_solved += 1;
     state.roundResults[resultKey].score += 50;
+    state.roundResults[resultKey].total_time_seconds += Number(timeTaken || 0);
 
     this.writeState(state);
     this.broadcast('CROSSWORD_COMPLETED', { teamId, crosswordIndex });
@@ -502,7 +508,6 @@ class SimulatorEngine {
     state.teams.forEach((team) => {
       const isSelected = selectedSet.has(team.id);
 
-      // Save immutable selection record
       const existingSelIndex = state.roundSelections.findIndex(
         (rs) => rs.team_id === team.id && rs.round_number === roundNumber
       );
@@ -512,6 +517,8 @@ class SimulatorEngine {
         team_id: team.id,
         round_number: roundNumber,
         selected: isSelected,
+        notes: 'confirmed',
+        is_confirmed: true,
         selected_by: 'ADMIN',
         selected_at: now
       };
@@ -540,7 +547,59 @@ class SimulatorEngine {
     });
 
     this.writeState(state);
-    this.broadcast('ROUND_SELECTION_CONFIRMED', { roundNumber, selectedTeamIds });
+    this.broadcast('ROUND_SELECTION_CONFIRMED', { roundNumber, selectedTeamIds, notes: 'confirmed' });
+
+    return { success: true, count: selectedTeamIds.length };
+  }
+
+  // Admin Publishes Round Selections (Interim stage - teams notified on qualified list, but secret word NOT unlocked yet)
+  publishRoundSelections(roundNumber, selectedTeamIds) {
+    const state = this.readState();
+    if (!state) return { success: false };
+
+    const selectedSet = new Set(selectedTeamIds);
+    const now = new Date().toISOString();
+
+    state.teams.forEach((team) => {
+      const isSelected = selectedSet.has(team.id);
+
+      const existingSelIndex = state.roundSelections.findIndex(
+        (rs) => rs.team_id === team.id && rs.round_number === roundNumber
+      );
+
+      const record = {
+        id: 'rs-' + Date.now() + '-' + team.id,
+        team_id: team.id,
+        round_number: roundNumber,
+        selected: isSelected,
+        notes: 'published',
+        is_confirmed: false,
+        selected_by: 'ADMIN',
+        selected_at: now
+      };
+
+      if (existingSelIndex >= 0) {
+        state.roundSelections[existingSelIndex] = record;
+      } else {
+        state.roundSelections.push(record);
+      }
+
+      if (isSelected) {
+        team.status = 'selected';
+      }
+    });
+
+    state.auditLogs.unshift({
+      id: 'log-' + Date.now(),
+      admin_id: 'ADMIN',
+      action: 'PUBLISH_ROUND_SELECTION',
+      round_number: roundNumber,
+      metadata: { selected_count: selectedTeamIds.length },
+      created_at: now
+    });
+
+    this.writeState(state);
+    this.broadcast('ROUND_SELECTION_PUBLISHED', { roundNumber, selectedTeamIds, notes: 'published' });
 
     return { success: true, count: selectedTeamIds.length };
   }

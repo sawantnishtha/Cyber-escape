@@ -33,13 +33,6 @@ export function LandingPage({ onTeamLoginSuccess, onAdminLoginSuccess }) {
       const teamRes = await authService.loginTeam(key);
       if (teamRes.success) {
         soundEffects.playAccessGranted();
-        try {
-          if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen().catch(() => {});
-          }
-        } catch (e) {
-          // ignore
-        }
         setShowAccessModal(false);
         onTeamLoginSuccess(teamRes.team, teamRes.gameSession);
         return;

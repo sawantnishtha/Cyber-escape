@@ -24,7 +24,52 @@ export const adminApi = {
   },
 
   /**
-   * Confirm round advancing teams via backend RPC admin_confirm_round_selections
+   * Publish round advancing teams list (Step 1 of qualification: teams notified of selection, secret words not yet unlocked)
+   */
+  async publishRoundSelections(adminKey, roundNumber, selectedTeamIds) {
+    if (!apiClient.isConfigured()) {
+      return { success: false, fallback: true };
+    }
+    try {
+      const { data: allTeams } = await apiClient.from('teams').select('id');
+      if (allTeams && allTeams.length > 0) {
+        const rows = allTeams.map((t) => ({
+          team_id: t.id,
+          round_number: roundNumber,
+          selected: selectedTeamIds.includes(t.id),
+          notes: 'published',
+          selected_at: new Date().toISOString()
+        }));
+
+        await apiClient.from('round_selections').upsert(rows, { onConflict: 'team_id, round_number' });
+
+        // Update selected teams status to 'selected'
+        if (selectedTeamIds.length > 0) {
+          await apiClient
+            .from('teams')
+            .update({ status: 'selected' })
+            .in('id', selectedTeamIds);
+        }
+      }
+
+      await apiClient.from('audit_logs').insert([
+        {
+          admin_id: 'admin',
+          action: 'PUBLISH_SELECTION',
+          round_number: roundNumber,
+          metadata: { selected_count: selectedTeamIds.length }
+        }
+      ]);
+
+      return { success: true, count: selectedTeamIds.length };
+    } catch (err) {
+      console.warn('[adminApi] publishRoundSelections error:', err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  /**
+   * Confirm round advancing teams via backend RPC admin_confirm_round_selections (Step 2: unlocks secret words)
    */
   async confirmRoundSelections(adminKey, roundNumber, selectedTeamIds) {
     if (!apiClient.isConfigured()) {
@@ -35,6 +80,16 @@ export const adminApi = {
       p_round_number: roundNumber,
       p_selected_team_ids: selectedTeamIds
     });
+
+    // Also update round_selections notes to 'confirmed'
+    try {
+      await apiClient
+        .from('round_selections')
+        .update({ notes: 'confirmed' })
+        .eq('round_number', roundNumber);
+    } catch (e) {
+      // ignore
+    }
 
     if (result.success && result.data) {
       return result.data;

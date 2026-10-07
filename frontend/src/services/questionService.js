@@ -93,12 +93,12 @@ export const questionService = {
   },
 
   // Complete a crossword in Round 2
-  async submitCrossword(teamId, crosswordIndex) {
-    const apiRes = await questionApi.submitCrossword(teamId, crosswordIndex);
+  async submitCrossword(teamId, crosswordIndex, timeTaken = 0) {
+    const apiRes = await questionApi.submitCrossword(teamId, crosswordIndex, timeTaken);
     if (apiRes && !apiRes.fallback && apiRes.success !== false) {
       return apiRes;
     }
 
-    return simulatorEngine.submitCrosswordCompletion(teamId, crosswordIndex);
+    return simulatorEngine.submitCrosswordCompletion(teamId, crosswordIndex, timeTaken);
   }
 };

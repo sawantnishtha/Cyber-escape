@@ -67,8 +67,8 @@ export const questionApi = {
   /**
    * Submit crossword completion for Round 2
    */
-  async submitCrossword(teamId, crosswordIndex) {
-    return this.submitAnswer(teamId, 2, crosswordIndex, 'COMPLETED', 0);
+  async submitCrossword(teamId, crosswordIndex, timeTaken = 0) {
+    return this.submitAnswer(teamId, 2, crosswordIndex, 'COMPLETED', timeTaken);
   }
 };
 

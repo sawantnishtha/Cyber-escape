@@ -46,13 +46,19 @@ const GLOBAL_SCREENS = [
 ];
 
 export function AdminDashboard({ admin, gameSession, onResetDemo }) {
-  // Navigation Tabs: 'controls' | 'r1_manage' | 'r2_manage' | 'r3_manage' | 'r4_manage' | 'submissions'
-  const [activeTab, setActiveTab] = useState('controls');
-
   const [leaderboard, setLeaderboard] = useState([]);
-  const [selectedTeamsMap, setSelectedTeamsMap] = useState({});
+  const [publishedRoundsMap, setPublishedRoundsMap] = useState({});
   const [selectionHistory, setSelectionHistory] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
+
+  // Per-round qualification checkbox state: { [roundNumber]: { [teamId]: boolean } }
+  const [roundQualifications, setRoundQualifications] = useState({
+    1: {},
+    2: {},
+    3: {},
+    4: {}
+  });
+  const [hasInitializedQuals, setHasInitializedQuals] = useState(false);
 
   const currentState = gameSession?.current_state || GAME_STATES.LANDING;
   const currentRound = gameSession?.current_round || 1;
@@ -77,6 +83,28 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
 
       const history = await adminService.getAllSelectionHistory();
       setSelectionHistory(history);
+
+      if (history && history.length > 0) {
+        const pubMap = {};
+        history.forEach((h) => {
+          if (h.notes === 'published' || h.notes === 'confirmed') {
+            pubMap[h.round_number] = true;
+          }
+        });
+        setPublishedRoundsMap((prev) => ({ ...prev, ...pubMap }));
+
+        // Initial sync of qualification checkboxes from database/history on first load
+        if (!hasInitializedQuals) {
+          const initMap = { 1: {}, 2: {}, 3: {}, 4: {} };
+          history.forEach((h) => {
+            if (h.selected && h.round_number >= 1 && h.round_number <= 4) {
+              initMap[h.round_number][h.team_id] = true;
+            }
+          });
+          setRoundQualifications(initMap);
+          setHasInitializedQuals(true);
+        }
+      }
 
       const logs = await adminService.getAuditLogs();
       setAuditLogs(logs);
@@ -135,96 +163,79 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
     );
   };
 
-  // Toggle selection for a team
-  const toggleTeamSelection = (teamId) => {
+  // Toggle qualification checkbox for a specific round and team
+  const toggleQualification = (teamId, roundNumber) => {
     soundEffects.playClick();
-    setSelectedTeamsMap((prev) => ({
+    setRoundQualifications((prev) => ({
       ...prev,
-      [teamId]: !prev[teamId]
+      [roundNumber]: {
+        ...prev[roundNumber],
+        [teamId]: !prev[roundNumber]?.[teamId]
+      }
     }));
   };
 
-  // Bulk selection helper
-  const handleBulkSelect = (count = null) => {
+  // Bulk select top teams for a given round
+  const handleBulkSelectForRound = (roundNumber, count) => {
     soundEffects.playClick();
+    const sorted = leaderboardService.sortTeamsForRound(leaderboard, roundNumber);
     const newMap = {};
-    const sorted = [...leaderboard].sort((a, b) => (a.rank || 99) - (b.rank || 99));
-
-    if (count === null) {
-      setSelectedTeamsMap({});
-      return;
-    }
-
     if (count === 'ALL') {
       sorted.forEach((t) => {
         newMap[t.id] = true;
       });
-    } else {
+    } else if (count > 0) {
       sorted.slice(0, count).forEach((t) => {
         newMap[t.id] = true;
       });
     }
-    setSelectedTeamsMap(newMap);
+    setRoundQualifications((prev) => ({
+      ...prev,
+      [roundNumber]: newMap
+    }));
+    showConsoleNotice(`MARKED TOP ${count} SQUADS FOR ROUND ${roundNumber}`);
   };
 
-  // Direct team status toggle
-  const handleTeamStatusChange = async (teamId, newStatus) => {
+  // One-Click Publish Round Results
+  // Directly reads the selected checkboxes for this round, persists qualification,
+  // updates team statuses, and transitions state to R_RESULT in one clean click!
+  const handleOneClickPublishRound = (roundNumber) => {
     soundEffects.playClick();
-    try {
-      await adminService.updateTeamStatus(teamId, newStatus, currentRound);
-      soundEffects.playKeyUnlocked();
-      showConsoleNotice(`TEAM ID ${teamId.slice(0, 8)} STATUS SET TO: ${newStatus.toUpperCase()}`);
-      fetchData();
-    } catch (err) {
-      alert('Failed to update team: ' + err.message);
-    }
-  };
-
-  // Confirm qualification for any round (reveals results & secret words to selected teams)
-  const handleConfirmRoundQualification = (roundNumber, autoAdvance = false) => {
-    soundEffects.playClick();
-    const selectedIds = Object.keys(selectedTeamsMap).filter((id) => selectedTeamsMap[id]);
+    const roundMap = roundQualifications[roundNumber] || {};
+    const selectedIds = Object.keys(roundMap).filter((id) => roundMap[id]);
 
     if (selectedIds.length === 0) {
-      alert('Please check at least 1 team to advance.');
+      alert(`Please check at least 1 team in the Qualification column for Round ${roundNumber} before publishing results.`);
       return;
     }
 
     setConfirmModalConfig({
-      title: `CONFIRM ROUND ${roundNumber} QUALIFICATIONS?`,
-      message: `You have selected ${selectedIds.length} team(s) to advance. Non-selected teams will be marked as Not Selected / Eliminated.\n\nQualified teams will immediately reveal their Secret Word on their screen. Proceed?`,
-      danger: true,
+      title: `PUBLISH ROUND ${roundNumber} RESULTS?`,
+      message: `You have selected ${selectedIds.length} team(s) to advance in Round ${roundNumber}.\n\nThis will publish the official scoreboard with these teams to all participant screens and advance qualified teams. Proceed?`,
+      danger: false,
       onConfirm: async () => {
         setIsProcessing(true);
         try {
-          // 1. Save round selections to database and update team statuses
+          // 1. Confirm selections in database and simulator
           await adminService.confirmRoundSelections('ADMIN-CYBER-2026', roundNumber, selectedIds);
+          // 2. Publish qualified roster
+          await adminService.publishRoundSelections('ADMIN-CYBER-2026', roundNumber, selectedIds);
 
-          // 2. Set game state to the corresponding RESULT state so teams see their Qualified + Secret Word vs Not Selected screen
+          // 3. Set game state to the corresponding RESULT state
           let resultState = GAME_STATES.R1_RESULT;
           if (roundNumber === 1) resultState = GAME_STATES.R1_RESULT;
           else if (roundNumber === 2) resultState = GAME_STATES.R2_RESULT;
           else if (roundNumber === 3) resultState = GAME_STATES.R3_RESULT;
           else if (roundNumber === 4) resultState = GAME_STATES.R4_RESULT;
 
-          if (autoAdvance) {
-            let nextState = GAME_STATES.R2_WAITING;
-            let nextRound = 2;
-            if (roundNumber === 1) { nextState = GAME_STATES.R2_WAITING; nextRound = 2; }
-            else if (roundNumber === 2) { nextState = GAME_STATES.R3_WAITING; nextRound = 3; }
-            else if (roundNumber === 3) { nextState = GAME_STATES.R4_WAITING; nextRound = 4; }
-            else if (roundNumber === 4) { nextState = GAME_STATES.FINAL_RIDDLE; nextRound = 4; }
-            await adminService.setGameState('ADMIN-CYBER-2026', nextState, nextRound);
-          } else {
-            await adminService.setGameState('ADMIN-CYBER-2026', resultState, roundNumber);
-          }
+          await adminService.setGameState('ADMIN-CYBER-2026', resultState, roundNumber);
 
+          setPublishedRoundsMap((prev) => ({ ...prev, [roundNumber]: true }));
           soundEffects.playAccessGranted();
-          showConsoleNotice(`ROUND ${roundNumber} SELECTION CONFIRMED! Results & secret words published.`);
-          setSelectedTeamsMap({});
+          showConsoleNotice(`ROUND ${roundNumber} RESULTS PUBLISHED! (${selectedIds.length} TEAMS ADVANCED)`);
           fetchData();
         } catch (err) {
-          alert('Confirmation failed: ' + err.message);
+          alert('Publishing failed: ' + err.message);
         } finally {
           setIsProcessing(false);
           setConfirmModalConfig(null);
@@ -283,7 +294,7 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
           if (onResetDemo) {
             await onResetDemo();
           }
-          setSelectedTeamsMap({});
+          setRoundQualifications({ 1: {}, 2: {}, 3: {}, 4: {} });
           await fetchData();
           soundEffects.playAccessGranted();
           showConsoleNotice('EVENT RESTARTED // INITIAL DEFAULT STATE RESTORED');
@@ -300,8 +311,6 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
   // Dedicated Emergency End Event handler
   const handleEndEvent = () => {
     soundEffects.playClick();
-    
-    // Auto-resolve winner and runner-up from leaderboard if not manually chosen
     const sorted = [...leaderboard].sort((a, b) => (a.rank || 99) - (b.rank || 99));
     const defaultWinner = sorted[0];
     const defaultRunnerUp = sorted[1];
@@ -337,9 +346,10 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
     });
   };
 
-  // Filtered leaderboard
+  // Filtered leaderboard sorted as per time submission for the current round
   const filteredLeaderboard = useMemo(() => {
-    return leaderboard.filter((t) => {
+    const sorted = leaderboardService.sortTeamsForRound(leaderboard, currentRound);
+    return sorted.filter((t) => {
       if (!teamSearchQuery.trim()) return true;
       const q = teamSearchQuery.toLowerCase();
       return (
@@ -347,7 +357,7 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
         (t.id && t.id.toLowerCase().includes(q))
       );
     });
-  }, [leaderboard, teamSearchQuery]);
+  }, [leaderboard, teamSearchQuery, currentRound]);
 
   const connectedCount = leaderboard.filter((t) => t.connected).length;
 
@@ -359,7 +369,7 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
     return 'CYBER ESCAPE';
   }, [currentRound]);
 
-  // Simple, clean, high-legibility typography for Admin Operations
+  // Clean, high-legibility typography for Admin Operations
   const adminSans = { fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" };
   const adminMono = { fontFamily: "'Fira Code', 'Roboto Mono', Consolas, monospace", fontVariantNumeric: 'tabular-nums' };
 
@@ -462,35 +472,34 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
               fontWeight: '700'
             }}
           >
-            <Radio size={13} color="var(--neon-amber)" /> GLOBAL LIVE SCREEN
+            <Radio size={13} color="var(--neon-amber)" /> GLOBAL BROADCAST SCREEN
           </div>
-          <div>
-            <select
-              value={currentState}
-              onChange={(e) => handleGlobalScreenChange(e.target.value)}
-              style={{
-                width: '100%',
-                background: '#070c1a',
-                border: '1px solid rgba(255, 183, 0, 0.45)',
-                borderRadius: '4px',
-                color: 'var(--neon-amber)',
-                ...adminSans,
-                fontSize: '0.84rem',
-                fontWeight: '600',
-                padding: '0.4rem 0.6rem',
-                cursor: 'pointer'
-              }}
-            >
-              {GLOBAL_SCREENS.map((screen) => (
-                <option key={screen.value} value={screen.value}>
-                  {screen.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <select
+            value={currentState}
+            onChange={(e) => handleGlobalScreenChange(e.target.value)}
+            style={{
+              width: '100%',
+              background: '#070c1a',
+              border: '1px solid rgba(255, 183, 0, 0.4)',
+              borderRadius: '4px',
+              color: '#ffb700',
+              fontWeight: '700',
+              fontSize: '0.85rem',
+              ...adminSans,
+              padding: '0.4rem 0.6rem',
+              cursor: 'pointer',
+              outline: 'none'
+            }}
+          >
+            {GLOBAL_SCREENS.map((s) => (
+              <option key={s.value} value={s.value} style={{ background: '#0a1122', color: '#fff' }}>
+                {s.label}
+              </option>
+            ))}
+          </select>
         </div>
 
-        {/* BOX 3: CONNECTED TEAMS */}
+        {/* BOX 3: CONNECTED PARTICIPANTS */}
         <div
           style={{
             background: 'rgba(10, 17, 34, 0.88)',
@@ -515,26 +524,23 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
               fontWeight: '700'
             }}
           >
-            <Users size={13} color="var(--neon-cyan)" /> CONNECTED TEAMS
+            <Users size={13} color="var(--neon-cyan)" /> REGISTERED AGENTS
           </div>
-          <div
-            style={{
-              fontSize: '1.25rem',
-              fontWeight: '700',
-              color: '#ffffff',
-              ...adminSans,
-              fontVariantNumeric: 'tabular-nums'
-            }}
-          >
-            {connectedCount} TEAMS
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+            <span style={{ fontSize: '1.4rem', fontWeight: '800', color: '#fff', ...adminMono }}>
+              {leaderboard.length}
+            </span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--neon-green)', fontWeight: '600' }}>
+              ({connectedCount} ONLINE)
+            </span>
           </div>
         </div>
 
-        {/* BOX 4: EVENT STATUS */}
+        {/* BOX 4: EVENT TIMER / STATE */}
         <div
           style={{
             background: 'rgba(10, 17, 34, 0.88)',
-            border: '1px solid rgba(0, 255, 136, 0.3)',
+            border: '1px solid rgba(0, 243, 255, 0.28)',
             borderRadius: '6px',
             padding: '0.9rem 1.2rem',
             backdropFilter: 'blur(12px)',
@@ -544,7 +550,7 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
           <div
             style={{
               fontSize: '0.72rem',
-              color: 'var(--neon-green)',
+              color: 'var(--neon-cyan)',
               ...adminSans,
               textTransform: 'uppercase',
               letterSpacing: '0.05em',
@@ -555,1365 +561,890 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
               fontWeight: '700'
             }}
           >
-            <Activity size={13} color="var(--neon-green)" /> EVENT STATUS
+            <Clock size={13} color="var(--neon-cyan)" /> EVENT STATUS
           </div>
-          <div
-            style={{
-              fontSize: '1.25rem',
-              fontWeight: '700',
-              color: 'var(--neon-green)',
-              ...adminSans,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem'
-            }}
-          >
-            <span className="pulse-dot" style={{ background: 'var(--neon-green)' }} /> ONLINE
+          <div style={{ fontSize: '1.15rem', fontWeight: '700', color: 'var(--neon-green)', ...adminMono }}>
+            {currentState.replace(/_/g, ' ')}
           </div>
         </div>
       </div>
 
-      {/* ============================================================== */}
-      {/* 2. SYSTEM CONSOLE TICKER BAR */}
-      {/* ============================================================== */}
+      {/* 2. REALTIME NOTIFICATION TICKER */}
       <div
         style={{
-          background: 'rgba(7, 12, 26, 0.92)',
-          border: '1px solid rgba(0, 243, 255, 0.22)',
+          background: 'rgba(6, 12, 24, 0.85)',
+          border: '1px solid rgba(0, 243, 255, 0.2)',
           borderRadius: '4px',
-          padding: '0.6rem 1rem',
+          padding: '0.5rem 1rem',
+          marginBottom: '1.2rem',
+          fontSize: '0.78rem',
+          color: '#cbd5e1',
+          ...adminMono,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          marginBottom: '1.2rem',
-          fontSize: '0.8rem',
           position: 'relative',
           zIndex: 1
         }}
       >
-        <div style={{ color: 'var(--neon-cyan)', display: 'flex', alignItems: 'center', gap: '0.5rem', ...adminMono }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           <Terminal size={14} color="var(--neon-cyan)" />
+          <span style={{ color: 'var(--neon-cyan)', fontWeight: '700' }}>CONSOLE:</span>
           <span>{statusNotice}</span>
         </div>
-
-        <div
-          style={{
-            border: '1px solid var(--neon-amber)',
-            borderRadius: '3px',
-            padding: '0.2rem 0.6rem',
-            color: 'var(--neon-amber)',
-            fontSize: '0.7rem',
-            fontWeight: '700',
-            letterSpacing: '0.05em',
-            ...adminSans
-          }}
-        >
+        <div style={{ color: 'var(--neon-green)', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <span className="pulse-dot" style={{ background: 'var(--neon-green)' }} />
           REALTIME BROADCAST ARMED
         </div>
       </div>
 
-      {/* ============================================================== */}
-      {/* 3. NAVIGATION TABS */}
-      {/* ============================================================== */}
+      {/* 3. SUBHEADER / STATUS BAR */}
       <div
         style={{
           display: 'flex',
-          gap: '0.5rem',
+          justifyContent: 'space-between',
+          alignItems: 'center',
           borderBottom: '1px solid rgba(0, 243, 255, 0.2)',
           marginBottom: '1.5rem',
-          paddingBottom: '0.3rem',
-          flexWrap: 'wrap',
+          paddingBottom: '0.5rem',
           position: 'relative',
           zIndex: 1
         }}
       >
-        {[
-          { key: 'controls', label: 'LIVE EVENT CONTROLS' },
-          { key: 'r1_manage', label: 'ROUND 1 SELECTION (THE FIRST BREACH)' },
-          { key: 'r2_manage', label: 'ROUND 2 SELECTION (GRIDLOCK PROTOCOL)' },
-          { key: 'r3_manage', label: 'ROUND 3 SELECTION (BINARY CONVERGENCE)' },
-          { key: 'r4_manage', label: 'ROUND 4 & FINAL RIDDLE' },
-          { key: 'submissions', label: 'ROUND SUBMISSIONS & TIMELINES' }
-        ].map((tab) => {
-          const isActive = activeTab === tab.key;
-          return (
-            <button
-              key={tab.key}
-              onClick={() => {
-                soundEffects.playClick();
-                setActiveTab(tab.key);
-              }}
-              style={{
-                background: isActive ? 'var(--neon-cyan)' : 'transparent',
-                color: isActive ? '#020814' : '#94a3b8',
-                border: 'none',
-                padding: '0.55rem 1.1rem',
-                fontSize: '0.8rem',
-                fontWeight: '700',
-                ...adminSans,
-                letterSpacing: '0.02em',
-                borderRadius: '4px 4px 0 0',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
+        <div
+          style={{
+            color: 'var(--neon-cyan)',
+            fontSize: '0.85rem',
+            fontWeight: '800',
+            letterSpacing: '0.08em',
+            ...adminSans,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
+          }}
+        >
+          <Activity size={16} color="var(--neon-cyan)" /> LIVE EVENT CONTROL CENTER
+        </div>
+        <div style={{ color: '#64748b', fontSize: '0.75rem', ...adminMono }}>
+          ACTIVE SQUADS: {leaderboard.length} | QUALIFIED R1: {Object.values(roundQualifications[1] || {}).filter(Boolean).length} | QUALIFIED R2: {Object.values(roundQualifications[2] || {}).filter(Boolean).length}
+        </div>
       </div>
 
       {/* ============================================================== */}
-      {/* TAB 1: LIVE EVENT CONTROLS (CARDS + EMERGENCY + LIVE MONITOR) */}
+      {/* MAIN VIEW: ROUND CARDS + EMERGENCY + LIVE MONITOR */}
       {/* ============================================================== */}
-      {activeTab === 'controls' && (
-        <div style={{ position: 'relative', zIndex: 1 }}>
-          {/* Mission / Round Cards Grid */}
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        {/* Mission / Round Cards Grid */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))',
+            gap: '1.2rem',
+            marginBottom: '1.8rem'
+          }}
+        >
+          {/* CARD 1: ROUND 1 */}
           <div
             style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))',
-              gap: '1.2rem',
-              marginBottom: '1.8rem'
+              background: 'rgba(10, 17, 34, 0.85)',
+              border: '1px solid rgba(0, 243, 255, 0.28)',
+              borderRadius: '8px',
+              padding: '1.4rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.8rem',
+              backdropFilter: 'blur(12px)'
             }}
           >
-            {/* CARD 1: ROUND 1 */}
-            <div
-              style={{
-                background: 'rgba(10, 17, 34, 0.85)',
-                border: '1px solid rgba(0, 243, 255, 0.28)',
-                borderRadius: '8px',
-                padding: '1.4rem',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.8rem',
-                backdropFilter: 'blur(12px)'
-              }}
-            >
-              <div>
-                <h2
-                  style={{
-                    fontSize: '1.1rem',
-                    fontWeight: '700',
-                    color: 'var(--neon-cyan)',
-                    letterSpacing: '0.02em',
-                    margin: 0,
-                    ...adminSans
-                  }}
-                >
-                  ROUND 1: THE FIRST BREACH
-                </h2>
-                <div style={{ fontSize: '0.75rem', color: '#94a3b8', ...adminSans, marginTop: '0.2rem', fontWeight: '500' }}>
-                  MCQ FIREWALL INTRUSION PROTOCOL
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '0.4rem' }}>
-                <button
-                  onClick={() => handleTransitionState(GAME_STATES.R1_ACTIVE, 1, 'Start Round 1')}
-                  style={{
-                    background: 'linear-gradient(135deg, #ffb700, #f59e0b)',
-                    color: '#000',
-                    fontWeight: '700',
-                    fontSize: '0.88rem',
-                    ...adminSans,
-                    padding: '0.75rem 1rem',
-                    border: 'none',
-                    borderRadius: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem',
-                    cursor: 'pointer',
-                    boxShadow: '0 0 16px rgba(255, 183, 0, 0.35)'
-                  }}
-                >
-                  <Play size={16} fill="#000" /> START ROUND 1
-                </button>
-
-                <button
-                  onClick={() => handleTransitionState(GAME_STATES.R1_WAITING, 1, 'Open Round 1 Waiting Room')}
-                  style={{
-                    background: 'rgba(13, 22, 44, 0.85)',
-                    border: '1px solid rgba(0, 243, 255, 0.25)',
-                    color: '#e2e8f0',
-                    fontSize: '0.82rem',
-                    ...adminSans,
-                    fontWeight: '600',
-                    padding: '0.65rem 1rem',
-                    borderRadius: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <Clock size={15} color="var(--neon-cyan)" /> WAITING ROOM
-                </button>
-
-                <button
-                  onClick={() => handleTransitionState(GAME_STATES.R1_RESULT, 1, 'Publish Round 1 Results', true)}
-                  style={{
-                    background: 'rgba(13, 22, 44, 0.85)',
-                    border: '1px solid rgba(0, 255, 136, 0.28)',
-                    color: 'var(--neon-green)',
-                    fontSize: '0.82rem',
-                    ...adminSans,
-                    fontWeight: '600',
-                    padding: '0.65rem 1rem',
-                    borderRadius: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <CheckSquare size={15} color="var(--neon-green)" /> PUBLISH ROUND 1 RESULTS
-                </button>
+            <div>
+              <h2
+                style={{
+                  fontSize: '1.1rem',
+                  fontWeight: '700',
+                  color: 'var(--neon-cyan)',
+                  letterSpacing: '0.02em',
+                  margin: 0,
+                  ...adminSans
+                }}
+              >
+                ROUND 1: THE FIRST BREACH
+              </h2>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', ...adminSans, marginTop: '0.2rem', fontWeight: '500' }}>
+                MCQ FIREWALL INTRUSION PROTOCOL
               </div>
             </div>
 
-            {/* CARD 2: ROUND 2 */}
-            <div
-              style={{
-                background: 'rgba(10, 17, 34, 0.85)',
-                border: '1px solid rgba(0, 243, 255, 0.28)',
-                borderRadius: '8px',
-                padding: '1.4rem',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.8rem',
-                backdropFilter: 'blur(12px)'
-              }}
-            >
-              <div>
-                <h2
-                  style={{
-                    fontSize: '1.1rem',
-                    fontWeight: '700',
-                    color: 'var(--neon-cyan)',
-                    letterSpacing: '0.02em',
-                    margin: 0,
-                    ...adminSans
-                  }}
-                >
-                  ROUND 2: GRIDLOCK PROTOCOL
-                </h2>
-                <div style={{ fontSize: '0.75rem', color: '#94a3b8', ...adminSans, marginTop: '0.2rem', fontWeight: '500' }}>
-                  TECHNICAL CRYPTOGRAPHIC CROSSWORDS
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '0.4rem' }}>
-                <button
-                  onClick={() => handleTransitionState(GAME_STATES.R2_ACTIVE, 2, 'Start Round 2')}
-                  style={{
-                    background: 'linear-gradient(135deg, #ffb700, #f59e0b)',
-                    color: '#000',
-                    fontWeight: '700',
-                    fontSize: '0.88rem',
-                    ...adminSans,
-                    padding: '0.75rem 1rem',
-                    border: 'none',
-                    borderRadius: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem',
-                    cursor: 'pointer',
-                    boxShadow: '0 0 16px rgba(255, 183, 0, 0.35)'
-                  }}
-                >
-                  <Play size={16} fill="#000" /> START ROUND 2
-                </button>
-
-                <button
-                  onClick={() => handleTransitionState(GAME_STATES.R2_WAITING, 2, 'Open Round 2 Waiting Room')}
-                  style={{
-                    background: 'rgba(13, 22, 44, 0.85)',
-                    border: '1px solid rgba(0, 243, 255, 0.25)',
-                    color: '#e2e8f0',
-                    fontSize: '0.82rem',
-                    ...adminSans,
-                    fontWeight: '600',
-                    padding: '0.65rem 1rem',
-                    borderRadius: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <Clock size={15} color="var(--neon-cyan)" /> WAITING ROOM
-                </button>
-
-                <button
-                  onClick={() => handleTransitionState(GAME_STATES.R2_RESULT, 2, 'Publish Round 2 Results', true)}
-                  style={{
-                    background: 'rgba(13, 22, 44, 0.85)',
-                    border: '1px solid rgba(0, 255, 136, 0.28)',
-                    color: 'var(--neon-green)',
-                    fontSize: '0.82rem',
-                    ...adminSans,
-                    fontWeight: '600',
-                    padding: '0.65rem 1rem',
-                    borderRadius: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <CheckSquare size={15} color="var(--neon-green)" /> PUBLISH ROUND 2 RESULTS
-                </button>
-              </div>
-            </div>
-
-            {/* CARD 3: ROUND 3 */}
-            <div
-              style={{
-                background: 'rgba(10, 17, 34, 0.85)',
-                border: '1px solid rgba(0, 243, 255, 0.28)',
-                borderRadius: '8px',
-                padding: '1.4rem',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.8rem',
-                backdropFilter: 'blur(12px)'
-              }}
-            >
-              <div>
-                <h2
-                  style={{
-                    fontSize: '1.1rem',
-                    fontWeight: '700',
-                    color: 'var(--neon-cyan)',
-                    letterSpacing: '0.02em',
-                    margin: 0,
-                    ...adminSans
-                  }}
-                >
-                  ROUND 3: BINARY CONVERGENCE
-                </h2>
-                <div style={{ fontSize: '0.75rem', color: '#94a3b8', ...adminSans, marginTop: '0.2rem', fontWeight: '500' }}>
-                  ASCII DECRYPTION MATRIX STREAM
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '0.4rem' }}>
-                <button
-                  onClick={() => handleTransitionState(GAME_STATES.R3_ACTIVE, 3, 'Start Round 3')}
-                  style={{
-                    background: 'linear-gradient(135deg, #ffb700, #f59e0b)',
-                    color: '#000',
-                    fontWeight: '700',
-                    fontSize: '0.88rem',
-                    ...adminSans,
-                    padding: '0.75rem 1rem',
-                    border: 'none',
-                    borderRadius: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem',
-                    cursor: 'pointer',
-                    boxShadow: '0 0 16px rgba(255, 183, 0, 0.35)'
-                  }}
-                >
-                  <Play size={16} fill="#000" /> START ROUND 3
-                </button>
-
-                <button
-                  onClick={() => handleTransitionState(GAME_STATES.R3_WAITING, 3, 'Open Round 3 Waiting Room')}
-                  style={{
-                    background: 'rgba(13, 22, 44, 0.85)',
-                    border: '1px solid rgba(0, 243, 255, 0.25)',
-                    color: '#e2e8f0',
-                    fontSize: '0.82rem',
-                    ...adminSans,
-                    fontWeight: '600',
-                    padding: '0.65rem 1rem',
-                    borderRadius: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <Clock size={15} color="var(--neon-cyan)" /> WAITING ROOM
-                </button>
-
-                <button
-                  onClick={() => handleTransitionState(GAME_STATES.R3_RESULT, 3, 'Publish Round 3 Results', true)}
-                  style={{
-                    background: 'rgba(13, 22, 44, 0.85)',
-                    border: '1px solid rgba(0, 255, 136, 0.28)',
-                    color: 'var(--neon-green)',
-                    fontSize: '0.82rem',
-                    ...adminSans,
-                    fontWeight: '600',
-                    padding: '0.65rem 1rem',
-                    borderRadius: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <CheckSquare size={15} color="var(--neon-green)" /> PUBLISH ROUND 3 RESULTS
-                </button>
-              </div>
-            </div>
-
-            {/* CARD 4: ROUND 4 & FINAL RIDDLE */}
-            <div
-              style={{
-                background: 'rgba(10, 17, 34, 0.85)',
-                border: '1px solid rgba(0, 243, 255, 0.28)',
-                borderRadius: '8px',
-                padding: '1.4rem',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.8rem',
-                backdropFilter: 'blur(12px)'
-              }}
-            >
-              <div>
-                <h2
-                  style={{
-                    fontSize: '1.1rem',
-                    fontWeight: '700',
-                    color: 'var(--neon-cyan)',
-                    letterSpacing: '0.02em',
-                    margin: 0,
-                    ...adminSans
-                  }}
-                >
-                  ROUND 4: SYSTEM OVERRIDE
-                </h2>
-                <div style={{ fontSize: '0.75rem', color: '#94a3b8', ...adminSans, marginTop: '0.2rem', fontWeight: '500' }}>
-                  KERNEL CODE FILL & MASTER RIDDLE
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '0.4rem' }}>
-                <button
-                  onClick={() => handleTransitionState(GAME_STATES.R4_ACTIVE, 4, 'Start Round 4')}
-                  style={{
-                    background: 'linear-gradient(135deg, #ffb700, #f59e0b)',
-                    color: '#000',
-                    fontWeight: '700',
-                    fontSize: '0.88rem',
-                    ...adminSans,
-                    padding: '0.75rem 1rem',
-                    border: 'none',
-                    borderRadius: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem',
-                    cursor: 'pointer',
-                    boxShadow: '0 0 16px rgba(255, 183, 0, 0.35)'
-                  }}
-                >
-                  <Play size={16} fill="#000" /> START ROUND 4
-                </button>
-
-                <button
-                  onClick={() => handleTransitionState(GAME_STATES.FINAL_RIDDLE, 4, 'Open Final Riddle Protocol')}
-                  style={{
-                    background: 'rgba(13, 22, 44, 0.85)',
-                    border: '1px solid rgba(0, 243, 255, 0.35)',
-                    color: 'var(--neon-cyan)',
-                    fontSize: '0.82rem',
-                    ...adminSans,
-                    fontWeight: '700',
-                    padding: '0.65rem 1rem',
-                    borderRadius: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <Sparkles size={15} color="var(--neon-cyan)" /> OPEN FINAL RIDDLE
-                </button>
-
-                <button
-                  onClick={() => handleTransitionState(GAME_STATES.FINAL_RESULT, 4, 'Publish Winners Podium', false)}
-                  style={{
-                    background: 'rgba(13, 22, 44, 0.85)',
-                    border: '1px solid rgba(255, 183, 0, 0.3)',
-                    color: 'var(--neon-amber)',
-                    fontSize: '0.82rem',
-                    ...adminSans,
-                    fontWeight: '700',
-                    padding: '0.65rem 1rem',
-                    borderRadius: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <Trophy size={15} color="var(--neon-amber)" /> PUBLISH WINNERS PODIUM
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* ============================================================== */}
-          {/* EMERGENCY EVENT OVERRIDE CONTROLS (EXACT FROM REFERENCE) */}
-          {/* ============================================================== */}
-          <div style={{ marginBottom: '2rem' }}>
-            <div
-              style={{
-                fontSize: '0.74rem',
-                color: 'var(--neon-red)',
-                ...adminSans,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                marginBottom: '0.6rem',
-                fontWeight: '700'
-              }}
-            >
-              <AlertTriangle size={14} color="var(--neon-red)" /> EMERGENCY EVENT OVERRIDE CONTROLS
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              {/* RESTART EVENT BUTTON */}
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '0.4rem' }}>
               <button
-                onClick={handleRestartEvent}
-                disabled={isProcessing}
+                onClick={() => handleTransitionState(GAME_STATES.R1_ACTIVE, 1, 'Start Round 1')}
                 style={{
                   background: 'linear-gradient(135deg, #ffb700, #f59e0b)',
                   color: '#000',
                   fontWeight: '700',
-                  fontSize: '0.9rem',
+                  fontSize: '0.88rem',
                   ...adminSans,
-                  letterSpacing: '0.03em',
-                  padding: '0.85rem',
+                  padding: '0.75rem 1rem',
                   border: 'none',
                   borderRadius: '4px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '0.6rem',
-                  cursor: isProcessing ? 'not-allowed' : 'pointer',
-                  opacity: isProcessing ? 0.7 : 1
+                  gap: '0.5rem',
+                  cursor: 'pointer',
+                  boxShadow: '0 0 16px rgba(255, 183, 0, 0.35)'
                 }}
               >
-                <RotateCcw size={16} /> {isProcessing ? 'RESTARTING...' : 'RESTART EVENT'}
+                <Play size={16} fill="#000" /> START ROUND 1
               </button>
 
-              {/* END EVENT BUTTON */}
               <button
-                onClick={handleEndEvent}
-                disabled={isProcessing}
+                onClick={() => handleTransitionState(GAME_STATES.R1_WAITING, 1, 'Open Round 1 Waiting Room')}
                 style={{
-                  background: '#991b1b',
-                  color: '#fff',
-                  fontWeight: '700',
-                  fontSize: '0.9rem',
+                  background: 'rgba(13, 22, 44, 0.85)',
+                  border: '1px solid rgba(0, 243, 255, 0.25)',
+                  color: '#e2e8f0',
+                  fontSize: '0.82rem',
                   ...adminSans,
-                  letterSpacing: '0.03em',
-                  padding: '0.85rem',
-                  border: 'none',
+                  fontWeight: '600',
+                  padding: '0.65rem 1rem',
                   borderRadius: '4px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '0.6rem',
-                  cursor: isProcessing ? 'not-allowed' : 'pointer'
+                  gap: '0.5rem',
+                  cursor: 'pointer'
                 }}
               >
-                <Square size={16} fill="#fff" /> END EVENT
+                <Clock size={15} color="var(--neon-cyan)" /> WAITING ROOM
+              </button>
+
+              {/* ONE-CLICK PUBLISH ROUND 1 RESULTS */}
+              <button
+                onClick={() => handleOneClickPublishRound(1)}
+                style={{
+                  background: 'rgba(13, 22, 44, 0.85)',
+                  border: '1px solid rgba(0, 255, 136, 0.35)',
+                  color: 'var(--neon-green)',
+                  fontSize: '0.82rem',
+                  ...adminSans,
+                  fontWeight: '700',
+                  padding: '0.65rem 1rem',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.5rem',
+                  cursor: 'pointer',
+                  boxShadow:
+                    Object.values(roundQualifications[1] || {}).filter(Boolean).length > 0
+                      ? '0 0 12px rgba(0, 255, 136, 0.25)'
+                      : undefined
+                }}
+              >
+                <CheckSquare size={15} color="var(--neon-green)" /> PUBLISH ROUND 1 RESULTS ({Object.values(roundQualifications[1] || {}).filter(Boolean).length})
               </button>
             </div>
           </div>
 
-          {/* ============================================================== */}
-          {/* LIVE TEAM STATUS MONITOR (EXACT MATCH TO REFERENCE 2) */}
-          {/* ============================================================== */}
+          {/* CARD 2: ROUND 2 */}
           <div
             style={{
-              background: 'rgba(10, 17, 34, 0.88)',
+              background: 'rgba(10, 17, 34, 0.85)',
               border: '1px solid rgba(0, 243, 255, 0.28)',
               borderRadius: '8px',
               padding: '1.4rem',
-              backdropFilter: 'blur(12px)',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)'
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.8rem',
+              backdropFilter: 'blur(12px)'
             }}
           >
-            {/* Header and Search Bar */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: '1rem',
-                marginBottom: '1.2rem',
-                paddingBottom: '0.8rem',
-                borderBottom: '1px solid rgba(0, 243, 255, 0.15)'
-              }}
-            >
-              <div>
-                <h3
-                  style={{
-                    fontSize: '1.15rem',
-                    fontWeight: '700',
-                    color: 'var(--neon-cyan)',
-                    letterSpacing: '0.02em',
-                    margin: 0,
-                    ...adminSans
-                  }}
-                >
-                  LIVE TEAM STATUS MONITOR
-                </h3>
-                <div style={{ fontSize: '0.75rem', color: '#94a3b8', ...adminSans, marginTop: '0.2rem', fontWeight: '500' }}>
-                  CONNECTED PARTICIPANT AGENTS
-                </div>
-              </div>
-
-              {/* Search and Bulk Action */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap' }}>
-                <div style={{ position: 'relative', width: '240px' }}>
-                  <input
-                    type="text"
-                    placeholder="Search Team Name or ID..."
-                    value={teamSearchQuery}
-                    onChange={(e) => setTeamSearchQuery(e.target.value)}
-                    style={{
-                      width: '100%',
-                      background: '#070c1a',
-                      border: '1px solid rgba(0, 243, 255, 0.3)',
-                      borderRadius: '4px',
-                      color: '#fff',
-                      fontSize: '0.82rem',
-                      ...adminSans,
-                      padding: '0.45rem 0.6rem 0.45rem 2rem'
-                    }}
-                  />
-                  <Search size={14} style={{ position: 'absolute', left: '0.6rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--neon-cyan)' }} />
-                </div>
-
-                <button
-                  onClick={() => handleBulkSelect(10)}
-                  style={{
-                    background: 'rgba(13, 22, 44, 0.85)',
-                    border: '1px solid rgba(0, 243, 255, 0.3)',
-                    color: 'var(--neon-cyan)',
-                    fontSize: '0.75rem',
-                    ...adminSans,
-                    fontWeight: '600',
-                    padding: '0.45rem 0.75rem',
-                    borderRadius: '4px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Mark Top 10
-                </button>
-
-                <button
-                  onClick={() => handleConfirmRoundQualification(currentRound)}
-                  disabled={isProcessing || Object.values(selectedTeamsMap).filter(Boolean).length === 0}
-                  style={{
-                    background: 'linear-gradient(135deg, #00f3ff, #00b4d8)',
-                    color: '#020814',
-                    fontSize: '0.78rem',
-                    ...adminSans,
-                    fontWeight: '700',
-                    padding: '0.45rem 0.9rem',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Confirm ({Object.values(selectedTeamsMap).filter(Boolean).length}) for Next Round
-                </button>
+            <div>
+              <h2
+                style={{
+                  fontSize: '1.1rem',
+                  fontWeight: '700',
+                  color: 'var(--neon-cyan)',
+                  letterSpacing: '0.02em',
+                  margin: 0,
+                  ...adminSans
+                }}
+              >
+                ROUND 2: GRIDLOCK PROTOCOL
+              </h2>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', ...adminSans, marginTop: '0.2rem', fontWeight: '500' }}>
+                TECHNICAL CRYPTOGRAPHIC CROSSWORDS
               </div>
             </div>
 
-            {/* Table */}
-            <div className="cyber-table-container">
-              <table className="cyber-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid rgba(0, 243, 255, 0.2)' }}>
-                    <th style={{ color: 'var(--neon-cyan)', ...adminSans, fontSize: '0.75rem', fontWeight: '700', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>TEAM NAME</th>
-                    <th style={{ color: 'var(--neon-cyan)', ...adminSans, fontSize: '0.75rem', fontWeight: '700', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>CURRENT ROUND</th>
-                    <th style={{ color: 'var(--neon-cyan)', ...adminSans, fontSize: '0.75rem', fontWeight: '700', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>CURRENT SCREEN</th>
-                    <th style={{ color: 'var(--neon-cyan)', ...adminSans, fontSize: '0.75rem', fontWeight: '700', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>QUALIFICATION</th>
-                    <th style={{ color: 'var(--neon-cyan)', ...adminSans, fontSize: '0.75rem', fontWeight: '700', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>STATUS</th>
-                    <th style={{ color: 'var(--neon-cyan)', ...adminSans, fontSize: '0.75rem', fontWeight: '700', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>R1 SCORE</th>
-                    <th style={{ color: 'var(--neon-cyan)', ...adminSans, fontSize: '0.75rem', fontWeight: '700', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>R2 SCORE</th>
-                    <th style={{ color: 'var(--neon-cyan)', ...adminSans, fontSize: '0.75rem', fontWeight: '700', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>R3 SCORE</th>
-                    <th style={{ color: 'var(--neon-cyan)', ...adminSans, fontSize: '0.75rem', fontWeight: '700', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>TOTAL PTS</th>
-                    <th style={{ color: 'var(--neon-cyan)', ...adminSans, fontSize: '0.75rem', fontWeight: '700', padding: '0.8rem 0.6rem', textAlign: 'center', letterSpacing: '0.04em' }}>ACTION / SELECT</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredLeaderboard.map((team) => {
-                    const isChecked = Boolean(selectedTeamsMap[team.id]);
-                    const isEliminated = team.status === 'eliminated';
-                    const isSelected = team.status === 'selected';
-
-                    return (
-                      <tr
-                        key={team.id}
-                        style={{
-                          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
-                          background: isChecked ? 'rgba(0, 243, 255, 0.08)' : undefined
-                        }}
-                      >
-                        {/* TEAM NAME */}
-                        <td style={{ padding: '0.75rem 0.6rem', fontWeight: '600', color: '#fff', ...adminSans }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            {team.connected && <span className="pulse-dot" style={{ background: 'var(--neon-green)' }} />}
-                            <span>{team.team_name}</span>
-                          </div>
-                          <div style={{ fontSize: '0.68rem', color: '#64748b', ...adminMono }}>
-                            ID: {team.id?.slice(0, 10)}...
-                          </div>
-                        </td>
-
-                        {/* CURRENT ROUND */}
-                        <td style={{ padding: '0.75rem 0.6rem', ...adminSans, fontSize: '0.82rem', fontWeight: '500' }}>
-                          ROUND 0{team.current_round || 1}
-                        </td>
-
-                        {/* CURRENT SCREEN */}
-                        <td style={{ padding: '0.75rem 0.6rem', ...adminSans, fontSize: '0.8rem' }}>
-                          {isEliminated ? (
-                            <span style={{ color: 'var(--neon-red)', fontWeight: '600' }}>Eliminated Screen</span>
-                          ) : currentState.includes('WAITING') ? (
-                            <span style={{ color: 'var(--neon-amber)', fontWeight: '600' }}>Waiting Room</span>
-                          ) : currentState.includes('ACTIVE') ? (
-                            <span style={{ color: 'var(--neon-green)', fontWeight: '600' }}>Active Solving</span>
-                          ) : (
-                            <span style={{ color: 'var(--neon-cyan)', fontWeight: '600' }}>Result Overview</span>
-                          )}
-                        </td>
-
-                        {/* QUALIFICATION */}
-                        <td style={{ padding: '0.75rem 0.6rem' }}>
-                          {isSelected ? (
-                            <span style={{ color: 'var(--neon-green)', fontWeight: '700', fontSize: '0.78rem', ...adminSans }}>
-                              ✓ QUALIFIED
-                            </span>
-                          ) : isEliminated ? (
-                            <span style={{ color: 'var(--neon-red)', fontWeight: '700', fontSize: '0.78rem', ...adminSans }}>
-                              ✕ NOT SELECTED
-                            </span>
-                          ) : (
-                            <span style={{ color: '#94a3b8', fontSize: '0.78rem', ...adminSans }}>
-                              PENDING
-                            </span>
-                          )}
-                        </td>
-
-                        {/* STATUS */}
-                        <td style={{ padding: '0.75rem 0.6rem' }}>
-                          <span
-                            className={`status-pill status-pill-${team.status || 'active'}`}
-                            style={{ fontSize: '0.72rem', ...adminSans }}
-                          >
-                            {(team.status || 'ACTIVE').toUpperCase()}
-                          </span>
-                        </td>
-
-                        {/* R1 SCORE */}
-                        <td style={{ padding: '0.75rem 0.6rem', ...adminSans, fontVariantNumeric: 'tabular-nums', fontWeight: '600', color: '#cbd5e1' }}>
-                          {currentRound >= 1 ? `${team.score || 0}` : '—'}
-                        </td>
-
-                        {/* R2 SCORE */}
-                        <td style={{ padding: '0.75rem 0.6rem', ...adminSans, fontVariantNumeric: 'tabular-nums', fontWeight: '600', color: '#cbd5e1' }}>
-                          {currentRound >= 2 ? `${team.score || 0}` : '—'}
-                        </td>
-
-                        {/* R3 SCORE */}
-                        <td style={{ padding: '0.75rem 0.6rem', ...adminSans, fontVariantNumeric: 'tabular-nums', fontWeight: '600', color: '#cbd5e1' }}>
-                          {currentRound >= 3 ? `${team.score || 0}` : '—'}
-                        </td>
-
-                        {/* TOTAL PTS */}
-                        <td style={{ padding: '0.75rem 0.6rem', ...adminSans, fontVariantNumeric: 'tabular-nums', fontWeight: '700', color: 'var(--neon-amber)' }}>
-                          {team.score || 0} PTS
-                        </td>
-
-                        {/* ACTION / SELECT */}
-                        <td style={{ padding: '0.75rem 0.6rem', textAlign: 'center' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => toggleTeamSelection(team.id)}
-                              style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: 'var(--neon-cyan)' }}
-                              title="Mark to advance"
-                            />
-
-                            <select
-                              value={team.status || 'active'}
-                              onChange={(e) => handleTeamStatusChange(team.id, e.target.value)}
-                              style={{
-                                background: '#070c1a',
-                                border: '1px solid rgba(0, 243, 255, 0.3)',
-                                borderRadius: '3px',
-                                color: 'var(--neon-cyan)',
-                                fontSize: '0.72rem',
-                                fontWeight: '500',
-                                ...adminSans,
-                                padding: '0.2rem 0.3rem',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              <option value="active">Active</option>
-                              <option value="selected">Selected</option>
-                              <option value="eliminated">Eliminated</option>
-                              <option value="waiting">Waiting</option>
-                            </select>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================== */}
-      {/* TAB 2: ROUND 1 SELECTION */}
-      {/* ============================================================== */}
-      {activeTab === 'r1_manage' && (
-        <div
-          style={{
-            background: 'rgba(10, 17, 34, 0.88)',
-            border: '1px solid rgba(0, 243, 255, 0.28)',
-            borderRadius: '8px',
-            padding: '1.8rem',
-            backdropFilter: 'blur(12px)',
-            position: 'relative',
-            zIndex: 1
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-            <div>
-              <h2 style={{ color: 'var(--neon-cyan)', margin: 0, fontSize: '1.25rem', fontWeight: '700', ...adminSans }}>
-                ROUND 1 SELECTION & QUALIFICATION
-              </h2>
-              <p style={{ color: '#8b9bb4', fontSize: '0.85rem', margin: '0.4rem 0 0 0', ...adminSans }}>
-                Select qualifying teams from Round 1 to advance to Round 2 (Gridlock Protocol).
-              </p>
-            </div>
-
-            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button onClick={() => handleBulkSelect(15)} className="cyber-btn" style={{ padding: '0.45rem 0.85rem', fontSize: '0.78rem', ...adminSans, fontWeight: '600' }}>Top 15</button>
-              <button onClick={() => handleBulkSelect(10)} className="cyber-btn" style={{ padding: '0.45rem 0.85rem', fontSize: '0.78rem', ...adminSans, fontWeight: '600' }}>Top 10</button>
-              <button onClick={() => handleBulkSelect(null)} className="cyber-btn" style={{ padding: '0.45rem 0.85rem', fontSize: '0.78rem', color: 'var(--neon-red)', ...adminSans, fontWeight: '600' }}>Clear</button>
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '0.4rem' }}>
               <button
-                onClick={() => handleConfirmRoundQualification(1, false)}
-                disabled={isProcessing}
+                onClick={() => handleTransitionState(GAME_STATES.R2_ACTIVE, 2, 'Start Round 2')}
                 style={{
-                  background: 'linear-gradient(135deg, #00f3ff, #00b4d8)',
-                  color: '#020814',
+                  background: 'linear-gradient(135deg, #ffb700, #f59e0b)',
+                  color: '#000',
                   fontWeight: '700',
+                  fontSize: '0.88rem',
                   ...adminSans,
-                  fontSize: '0.82rem',
-                  padding: '0.5rem 1.1rem',
+                  padding: '0.75rem 1rem',
                   border: 'none',
                   borderRadius: '4px',
-                  cursor: isProcessing ? 'not-allowed' : 'pointer'
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.5rem',
+                  cursor: 'pointer',
+                  boxShadow: '0 0 16px rgba(255, 183, 0, 0.35)'
                 }}
               >
-                1. Confirm & Reveal Secret Word (R1_RESULT)
+                <Play size={16} fill="#000" /> START ROUND 2
               </button>
+
               <button
-                onClick={() => handleTransitionState(GAME_STATES.R2_WAITING, 2, 'Advance Qualified Teams to Round 2 Waiting Room')}
-                disabled={isProcessing}
+                onClick={() => handleTransitionState(GAME_STATES.R2_WAITING, 2, 'Open Round 2 Waiting Room')}
                 style={{
-                  background: 'rgba(13, 22, 44, 0.9)',
-                  border: '1px solid rgba(0, 243, 255, 0.45)',
-                  color: 'var(--neon-cyan)',
-                  fontWeight: '700',
-                  ...adminSans,
+                  background: 'rgba(13, 22, 44, 0.85)',
+                  border: '1px solid rgba(0, 243, 255, 0.25)',
+                  color: '#e2e8f0',
                   fontSize: '0.82rem',
-                  padding: '0.5rem 1.1rem',
+                  ...adminSans,
+                  fontWeight: '600',
+                  padding: '0.65rem 1rem',
                   borderRadius: '4px',
-                  cursor: isProcessing ? 'not-allowed' : 'pointer'
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.5rem',
+                  cursor: 'pointer'
                 }}
               >
-                2. Advance to R2 Waiting Room ➔
+                <Clock size={15} color="var(--neon-cyan)" /> WAITING ROOM
+              </button>
+
+              {/* ONE-CLICK PUBLISH ROUND 2 RESULTS */}
+              <button
+                onClick={() => handleOneClickPublishRound(2)}
+                style={{
+                  background: 'rgba(13, 22, 44, 0.85)',
+                  border: '1px solid rgba(0, 255, 136, 0.35)',
+                  color: 'var(--neon-green)',
+                  fontSize: '0.82rem',
+                  ...adminSans,
+                  fontWeight: '700',
+                  padding: '0.65rem 1rem',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.5rem',
+                  cursor: 'pointer',
+                  boxShadow:
+                    Object.values(roundQualifications[2] || {}).filter(Boolean).length > 0
+                      ? '0 0 12px rgba(0, 255, 136, 0.25)'
+                      : undefined
+                }}
+              >
+                <CheckSquare size={15} color="var(--neon-green)" /> PUBLISH ROUND 2 RESULTS ({Object.values(roundQualifications[2] || {}).filter(Boolean).length})
               </button>
             </div>
           </div>
 
-          <div className="cyber-table-container">
-            <table className="cyber-table" style={{ width: '100%' }}>
-              <thead>
-                <tr>
-                  <th style={{ width: '45px' }}>SELECT</th>
-                  <th>RANK</th>
-                  <th>TEAM NAME</th>
-                  <th>SCORE</th>
-                  <th>SOLVED</th>
-                  <th>TIME TAKEN</th>
-                  <th>STATUS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {leaderboard.map((team) => (
-                  <tr key={team.id} onClick={() => toggleTeamSelection(team.id)} style={{ cursor: 'pointer', background: selectedTeamsMap[team.id] ? 'rgba(0, 243, 255, 0.08)' : undefined }}>
-                    <td><input type="checkbox" checked={Boolean(selectedTeamsMap[team.id])} onChange={() => {}} /></td>
-                    <td style={{ ...adminSans, fontWeight: '700', color: 'var(--neon-amber)' }}>#{team.rank}</td>
-                    <td style={{ fontWeight: '600', color: '#fff', ...adminSans }}>{team.team_name}</td>
-                    <td style={{ color: 'var(--neon-green)', fontWeight: '700', ...adminSans, fontVariantNumeric: 'tabular-nums' }}>{team.score} pts</td>
-                    <td style={{ ...adminSans }}>{team.questions_solved} Solved</td>
-                    <td style={{ ...adminMono, fontSize: '0.82rem' }}>{Math.floor(team.total_time_seconds / 60)}m {Math.floor(team.total_time_seconds % 60)}s</td>
-                    <td><span className={`status-pill status-pill-${team.status}`} style={{ ...adminSans }}>{team.status}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================== */}
-      {/* TAB 3: ROUND 2 SELECTION */}
-      {/* ============================================================== */}
-      {activeTab === 'r2_manage' && (
-        <div
-          style={{
-            background: 'rgba(10, 17, 34, 0.88)',
-            border: '1px solid rgba(0, 243, 255, 0.28)',
-            borderRadius: '8px',
-            padding: '1.8rem',
-            backdropFilter: 'blur(12px)',
-            position: 'relative',
-            zIndex: 1
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-            <div>
-              <h2 style={{ color: 'var(--neon-cyan)', margin: 0, fontSize: '1.25rem', fontWeight: '700', ...adminSans }}>
-                ROUND 2 SELECTION & QUALIFICATION
-              </h2>
-              <p style={{ color: '#8b9bb4', fontSize: '0.85rem', margin: '0.4rem 0 0 0', ...adminSans }}>
-                Select qualifying teams from Round 2 to advance to Round 3 (Binary Convergence).
-              </p>
-            </div>
-
-            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button onClick={() => handleBulkSelect(10)} className="cyber-btn" style={{ padding: '0.45rem 0.85rem', fontSize: '0.78rem', ...adminSans, fontWeight: '600' }}>Top 10</button>
-              <button onClick={() => handleBulkSelect(null)} className="cyber-btn" style={{ padding: '0.45rem 0.85rem', fontSize: '0.78rem', color: 'var(--neon-red)', ...adminSans, fontWeight: '600' }}>Clear</button>
-              <button
-                onClick={() => handleConfirmRoundQualification(2, false)}
-                disabled={isProcessing}
-                style={{
-                  background: 'linear-gradient(135deg, #00f3ff, #00b4d8)',
-                  color: '#020814',
-                  fontWeight: '700',
-                  ...adminSans,
-                  fontSize: '0.82rem',
-                  padding: '0.5rem 1.1rem',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: isProcessing ? 'not-allowed' : 'pointer'
-                }}
-              >
-                1. Confirm & Reveal Secret Word (R2_RESULT)
-              </button>
-              <button
-                onClick={() => handleTransitionState(GAME_STATES.R3_WAITING, 3, 'Advance Qualified Teams to Round 3 Waiting Room')}
-                disabled={isProcessing}
-                style={{
-                  background: 'rgba(13, 22, 44, 0.9)',
-                  border: '1px solid rgba(0, 243, 255, 0.45)',
-                  color: 'var(--neon-cyan)',
-                  fontWeight: '700',
-                  ...adminSans,
-                  fontSize: '0.82rem',
-                  padding: '0.5rem 1.1rem',
-                  borderRadius: '4px',
-                  cursor: isProcessing ? 'not-allowed' : 'pointer'
-                }}
-              >
-                2. Advance to R3 Waiting Room ➔
-              </button>
-            </div>
-          </div>
-
-          <div className="cyber-table-container">
-            <table className="cyber-table" style={{ width: '100%' }}>
-              <thead>
-                <tr>
-                  <th style={{ width: '45px' }}>SELECT</th>
-                  <th>RANK</th>
-                  <th>TEAM NAME</th>
-                  <th>SCORE</th>
-                  <th>SOLVED</th>
-                  <th>TIME TAKEN</th>
-                  <th>STATUS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {leaderboard.map((team) => (
-                  <tr key={team.id} onClick={() => toggleTeamSelection(team.id)} style={{ cursor: 'pointer', background: selectedTeamsMap[team.id] ? 'rgba(0, 243, 255, 0.08)' : undefined }}>
-                    <td><input type="checkbox" checked={Boolean(selectedTeamsMap[team.id])} onChange={() => {}} /></td>
-                    <td style={{ ...adminSans, fontWeight: '700', color: 'var(--neon-amber)' }}>#{team.rank}</td>
-                    <td style={{ fontWeight: '600', color: '#fff', ...adminSans }}>{team.team_name}</td>
-                    <td style={{ color: 'var(--neon-green)', fontWeight: '700', ...adminSans, fontVariantNumeric: 'tabular-nums' }}>{team.score} pts</td>
-                    <td style={{ ...adminSans }}>{team.questions_solved} Solved</td>
-                    <td style={{ ...adminMono, fontSize: '0.82rem' }}>{Math.floor(team.total_time_seconds / 60)}m {Math.floor(team.total_time_seconds % 60)}s</td>
-                    <td><span className={`status-pill status-pill-${team.status}`} style={{ ...adminSans }}>{team.status}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================== */}
-      {/* TAB 4: ROUND 3 SELECTION */}
-      {/* ============================================================== */}
-      {activeTab === 'r3_manage' && (
-        <div
-          style={{
-            background: 'rgba(10, 17, 34, 0.88)',
-            border: '1px solid rgba(0, 243, 255, 0.28)',
-            borderRadius: '8px',
-            padding: '1.8rem',
-            backdropFilter: 'blur(12px)',
-            position: 'relative',
-            zIndex: 1
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-            <div>
-              <h2 style={{ color: 'var(--neon-cyan)', margin: 0, fontSize: '1.25rem', fontWeight: '700', ...adminSans }}>
-                ROUND 3 SELECTION & QUALIFICATION
-              </h2>
-              <p style={{ color: '#8b9bb4', fontSize: '0.85rem', margin: '0.4rem 0 0 0', ...adminSans }}>
-                Select qualifying teams from Round 3 to advance to Round 4 (System Override).
-              </p>
-            </div>
-
-            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button onClick={() => handleBulkSelect(10)} className="cyber-btn" style={{ padding: '0.45rem 0.85rem', fontSize: '0.78rem', ...adminSans, fontWeight: '600' }}>Top 10</button>
-              <button onClick={() => handleBulkSelect(null)} className="cyber-btn" style={{ padding: '0.45rem 0.85rem', fontSize: '0.78rem', color: 'var(--neon-red)', ...adminSans, fontWeight: '600' }}>Clear</button>
-              <button
-                onClick={() => handleConfirmRoundQualification(3, false)}
-                disabled={isProcessing}
-                style={{
-                  background: 'linear-gradient(135deg, #00f3ff, #00b4d8)',
-                  color: '#020814',
-                  fontWeight: '700',
-                  ...adminSans,
-                  fontSize: '0.82rem',
-                  padding: '0.5rem 1.1rem',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: isProcessing ? 'not-allowed' : 'pointer'
-                }}
-              >
-                1. Confirm & Reveal Secret Word (R3_RESULT)
-              </button>
-              <button
-                onClick={() => handleTransitionState(GAME_STATES.R4_WAITING, 4, 'Advance Qualified Teams to Round 4 Waiting Room')}
-                disabled={isProcessing}
-                style={{
-                  background: 'rgba(13, 22, 44, 0.9)',
-                  border: '1px solid rgba(0, 243, 255, 0.45)',
-                  color: 'var(--neon-cyan)',
-                  fontWeight: '700',
-                  ...adminSans,
-                  fontSize: '0.82rem',
-                  padding: '0.5rem 1.1rem',
-                  borderRadius: '4px',
-                  cursor: isProcessing ? 'not-allowed' : 'pointer'
-                }}
-              >
-                2. Advance to R4 Waiting Room ➔
-              </button>
-            </div>
-          </div>
-
-          <div className="cyber-table-container">
-            <table className="cyber-table" style={{ width: '100%' }}>
-              <thead>
-                <tr>
-                  <th style={{ width: '45px' }}>SELECT</th>
-                  <th>RANK</th>
-                  <th>TEAM NAME</th>
-                  <th>SCORE</th>
-                  <th>SOLVED</th>
-                  <th>TIME TAKEN</th>
-                  <th>STATUS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {leaderboard.map((team) => (
-                  <tr key={team.id} onClick={() => toggleTeamSelection(team.id)} style={{ cursor: 'pointer', background: selectedTeamsMap[team.id] ? 'rgba(0, 243, 255, 0.08)' : undefined }}>
-                    <td><input type="checkbox" checked={Boolean(selectedTeamsMap[team.id])} onChange={() => {}} /></td>
-                    <td style={{ ...adminSans, fontWeight: '700', color: 'var(--neon-amber)' }}>#{team.rank}</td>
-                    <td style={{ fontWeight: '600', color: '#fff', ...adminSans }}>{team.team_name}</td>
-                    <td style={{ color: 'var(--neon-green)', fontWeight: '700', ...adminSans, fontVariantNumeric: 'tabular-nums' }}>{team.score} pts</td>
-                    <td style={{ ...adminSans }}>{team.questions_solved} Solved</td>
-                    <td style={{ ...adminMono, fontSize: '0.82rem' }}>{Math.floor(team.total_time_seconds / 60)}m {Math.floor(team.total_time_seconds % 60)}s</td>
-                    <td><span className={`status-pill status-pill-${team.status}`} style={{ ...adminSans }}>{team.status}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================== */}
-      {/* TAB 5: ROUND 4 & FINAL RIDDLE (TOP 10 + WINNERS PODIUM) */}
-      {/* ============================================================== */}
-      {activeTab === 'r4_manage' && (
-        <div
-          style={{
-            background: 'rgba(10, 17, 34, 0.88)',
-            border: '1px solid rgba(0, 243, 255, 0.28)',
-            borderRadius: '8px',
-            padding: '1.8rem',
-            backdropFilter: 'blur(12px)',
-            position: 'relative',
-            zIndex: 1
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-            <div>
-              <h2 style={{ color: 'var(--neon-cyan)', margin: 0, fontSize: '1.25rem', fontWeight: '700', ...adminSans }}>
-                ROUND 4 & FINAL RIDDLE QUALIFICATION
-              </h2>
-              <p style={{ color: '#8b9bb4', fontSize: '0.85rem', margin: '0.4rem 0 0 0', ...adminSans }}>
-                Select Top 10 teams for the final sentence decoding riddle, and declare official podium winners.
-              </p>
-            </div>
-
-            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button onClick={() => handleBulkSelect(10)} className="cyber-btn" style={{ padding: '0.45rem 0.85rem', fontSize: '0.78rem', ...adminSans, fontWeight: '600' }}>Top 10</button>
-              <button
-                onClick={() => handleConfirmRoundQualification(4, false)}
-                disabled={isProcessing}
-                style={{
-                  background: 'linear-gradient(135deg, #00f3ff, #00b4d8)',
-                  color: '#020814',
-                  fontWeight: '700',
-                  ...adminSans,
-                  fontSize: '0.82rem',
-                  padding: '0.5rem 1.1rem',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: isProcessing ? 'not-allowed' : 'pointer'
-                }}
-              >
-                1. Confirm Top 10 & Reveal Secret Word (R4_RESULT)
-              </button>
-              <button
-                onClick={() => handleTransitionState(GAME_STATES.FINAL_RIDDLE, 4, 'Launch Final Riddle Protocol')}
-                disabled={isProcessing}
-                style={{
-                  background: 'rgba(13, 22, 44, 0.9)',
-                  border: '1px solid rgba(255, 183, 0, 0.45)',
-                  color: 'var(--neon-amber)',
-                  fontWeight: '700',
-                  ...adminSans,
-                  fontSize: '0.82rem',
-                  padding: '0.5rem 1.1rem',
-                  borderRadius: '4px',
-                  cursor: isProcessing ? 'not-allowed' : 'pointer'
-                }}
-              >
-                2. Launch Final Riddle Protocol ➔
-              </button>
-            </div>
-          </div>
-
-          {/* Declare Winners Box */}
+          {/* CARD 3: ROUND 3 */}
           <div
             style={{
-              background: 'rgba(7, 12, 26, 0.9)',
-              border: '1px solid rgba(255, 183, 0, 0.35)',
-              borderRadius: '6px',
+              background: 'rgba(10, 17, 34, 0.85)',
+              border: '1px solid rgba(0, 243, 255, 0.28)',
+              borderRadius: '8px',
               padding: '1.4rem',
-              marginBottom: '1.5rem',
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-              gap: '1rem',
-              alignItems: 'end'
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.8rem',
+              backdropFilter: 'blur(12px)'
             }}
           >
             <div>
-              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--neon-amber)', marginBottom: '0.3rem', ...adminSans, fontWeight: '700' }}>
-                SELECT CHAMPION (WINNER):
-              </label>
-              <select
-                className="cyber-input"
-                value={selectedWinnerId}
-                onChange={(e) => setSelectedWinnerId(e.target.value)}
-                style={{ ...adminSans, fontSize: '0.85rem' }}
+              <h2
+                style={{
+                  fontSize: '1.1rem',
+                  fontWeight: '700',
+                  color: 'var(--neon-cyan)',
+                  letterSpacing: '0.02em',
+                  margin: 0,
+                  ...adminSans
+                }}
               >
-                <option value="">-- Choose Champion --</option>
-                {leaderboard.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    #{t.rank} {t.team_name} ({t.score} pts)
-                  </option>
-                ))}
-              </select>
+                ROUND 3: BINARY CONVERGENCE
+              </h2>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', ...adminSans, marginTop: '0.2rem', fontWeight: '500' }}>
+                ASCII DECRYPTION MATRIX STREAM
+              </div>
             </div>
 
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '0.4rem' }}>
+              <button
+                onClick={() => handleTransitionState(GAME_STATES.R3_ACTIVE, 3, 'Start Round 3')}
+                style={{
+                  background: 'linear-gradient(135deg, #ffb700, #f59e0b)',
+                  color: '#000',
+                  fontWeight: '700',
+                  fontSize: '0.88rem',
+                  ...adminSans,
+                  padding: '0.75rem 1rem',
+                  border: 'none',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.5rem',
+                  cursor: 'pointer',
+                  boxShadow: '0 0 16px rgba(255, 183, 0, 0.35)'
+                }}
+              >
+                <Play size={16} fill="#000" /> START ROUND 3
+              </button>
+
+              <button
+                onClick={() => handleTransitionState(GAME_STATES.R3_WAITING, 3, 'Open Round 3 Waiting Room')}
+                style={{
+                  background: 'rgba(13, 22, 44, 0.85)',
+                  border: '1px solid rgba(0, 243, 255, 0.25)',
+                  color: '#e2e8f0',
+                  fontSize: '0.82rem',
+                  ...adminSans,
+                  fontWeight: '600',
+                  padding: '0.65rem 1rem',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.5rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <Clock size={15} color="var(--neon-cyan)" /> WAITING ROOM
+              </button>
+
+              {/* ONE-CLICK PUBLISH ROUND 3 RESULTS */}
+              <button
+                onClick={() => handleOneClickPublishRound(3)}
+                style={{
+                  background: 'rgba(13, 22, 44, 0.85)',
+                  border: '1px solid rgba(0, 255, 136, 0.35)',
+                  color: 'var(--neon-green)',
+                  fontSize: '0.82rem',
+                  ...adminSans,
+                  fontWeight: '700',
+                  padding: '0.65rem 1rem',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.5rem',
+                  cursor: 'pointer',
+                  boxShadow:
+                    Object.values(roundQualifications[3] || {}).filter(Boolean).length > 0
+                      ? '0 0 12px rgba(0, 255, 136, 0.25)'
+                      : undefined
+                }}
+              >
+                <CheckSquare size={15} color="var(--neon-green)" /> PUBLISH ROUND 3 RESULTS ({Object.values(roundQualifications[3] || {}).filter(Boolean).length})
+              </button>
+            </div>
+          </div>
+
+          {/* CARD 4: ROUND 4 & FINAL RIDDLE */}
+          <div
+            style={{
+              background: 'rgba(10, 17, 34, 0.85)',
+              border: '1px solid rgba(0, 243, 255, 0.28)',
+              borderRadius: '8px',
+              padding: '1.4rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.8rem',
+              backdropFilter: 'blur(12px)'
+            }}
+          >
             <div>
-              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--neon-cyan)', marginBottom: '0.3rem', ...adminSans, fontWeight: '700' }}>
-                SELECT RUNNER-UP (2ND PLACE):
-              </label>
-              <select
-                className="cyber-input"
-                value={selectedRunnerUpId}
-                onChange={(e) => setSelectedRunnerUpId(e.target.value)}
-                style={{ ...adminSans, fontSize: '0.85rem' }}
+              <h2
+                style={{
+                  fontSize: '1.1rem',
+                  fontWeight: '700',
+                  color: 'var(--neon-cyan)',
+                  letterSpacing: '0.02em',
+                  margin: 0,
+                  ...adminSans
+                }}
               >
-                <option value="">-- Choose Runner-Up --</option>
-                {leaderboard.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    #{t.rank} {t.team_name} ({t.score} pts)
-                  </option>
-                ))}
-              </select>
+                ROUND 4: SYSTEM OVERRIDE
+              </h2>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', ...adminSans, marginTop: '0.2rem', fontWeight: '500' }}>
+                KERNEL CODE FILL & MASTER RIDDLE
+              </div>
             </div>
 
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '0.4rem' }}>
+              <button
+                onClick={() => handleTransitionState(GAME_STATES.R4_ACTIVE, 4, 'Start Round 4')}
+                style={{
+                  background: 'linear-gradient(135deg, #ffb700, #f59e0b)',
+                  color: '#000',
+                  fontWeight: '700',
+                  fontSize: '0.88rem',
+                  ...adminSans,
+                  padding: '0.75rem 1rem',
+                  border: 'none',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.5rem',
+                  cursor: 'pointer',
+                  boxShadow: '0 0 16px rgba(255, 183, 0, 0.35)'
+                }}
+              >
+                <Play size={16} fill="#000" /> START ROUND 4
+              </button>
+
+              {/* ONE-CLICK PUBLISH ROUND 4 RESULTS */}
+              <button
+                onClick={() => handleOneClickPublishRound(4)}
+                style={{
+                  background: 'rgba(13, 22, 44, 0.85)',
+                  border: '1px solid rgba(0, 255, 136, 0.35)',
+                  color: 'var(--neon-green)',
+                  fontSize: '0.82rem',
+                  ...adminSans,
+                  fontWeight: '700',
+                  padding: '0.65rem 1rem',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.5rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <CheckSquare size={15} color="var(--neon-green)" /> PUBLISH ROUND 4 RESULTS ({Object.values(roundQualifications[4] || {}).filter(Boolean).length})
+              </button>
+
+              <button
+                onClick={() => handleTransitionState(GAME_STATES.FINAL_RIDDLE, 4, 'Open Final Riddle Protocol')}
+                style={{
+                  background: 'rgba(13, 22, 44, 0.85)',
+                  border: '1px solid rgba(0, 243, 255, 0.35)',
+                  color: 'var(--neon-cyan)',
+                  fontSize: '0.82rem',
+                  ...adminSans,
+                  fontWeight: '700',
+                  padding: '0.65rem 1rem',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.5rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <Sparkles size={15} color="var(--neon-cyan)" /> OPEN FINAL RIDDLE
+              </button>
+
+              <button
+                onClick={() => handleTransitionState(GAME_STATES.FINAL_RESULT, 4, 'Publish Winners Podium', false)}
+                style={{
+                  background: 'rgba(13, 22, 44, 0.85)',
+                  border: '1px solid rgba(255, 183, 0, 0.3)',
+                  color: 'var(--neon-amber)',
+                  fontSize: '0.82rem',
+                  ...adminSans,
+                  fontWeight: '700',
+                  padding: '0.65rem 1rem',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.5rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <Trophy size={15} color="var(--neon-amber)" /> PUBLISH WINNERS PODIUM
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ============================================================== */}
+        {/* EMERGENCY EVENT OVERRIDE CONTROLS */}
+        {/* ============================================================== */}
+        <div style={{ marginBottom: '2rem' }}>
+          <div
+            style={{
+              fontSize: '0.74rem',
+              color: 'var(--neon-red)',
+              ...adminSans,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              marginBottom: '0.6rem',
+              fontWeight: '700'
+            }}
+          >
+            <AlertTriangle size={14} color="var(--neon-red)" /> EMERGENCY EVENT OVERRIDE CONTROLS
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            {/* RESTART EVENT BUTTON */}
             <button
-              onClick={handleDeclareFinalWinners}
+              onClick={handleRestartEvent}
+              disabled={isProcessing}
               style={{
                 background: 'linear-gradient(135deg, #ffb700, #f59e0b)',
                 color: '#000',
                 fontWeight: '700',
+                fontSize: '0.9rem',
                 ...adminSans,
-                fontSize: '0.88rem',
-                padding: '0.65rem 1.2rem',
+                letterSpacing: '0.03em',
+                padding: '0.85rem',
                 border: 'none',
                 borderRadius: '4px',
-                cursor: 'pointer'
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.6rem',
+                cursor: isProcessing ? 'not-allowed' : 'pointer',
+                opacity: isProcessing ? 0.7 : 1
               }}
             >
-              <Trophy size={15} style={{ display: 'inline', marginRight: '0.3rem' }} /> Publish Winners Podium
+              <RotateCcw size={16} /> {isProcessing ? 'RESTARTING...' : 'RESTART EVENT'}
+            </button>
+
+            {/* END EVENT BUTTON */}
+            <button
+              onClick={handleEndEvent}
+              disabled={isProcessing}
+              style={{
+                background: '#991b1b',
+                color: '#fff',
+                fontWeight: '700',
+                fontSize: '0.9rem',
+                ...adminSans,
+                letterSpacing: '0.03em',
+                padding: '0.85rem',
+                border: 'none',
+                borderRadius: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.6rem',
+                cursor: isProcessing ? 'not-allowed' : 'pointer'
+              }}
+            >
+              <Square size={16} fill="#fff" /> END EVENT
             </button>
           </div>
         </div>
-      )}
 
-      {/* ============================================================== */}
-      {/* TAB 6: ROUND SUBMISSIONS & TIMELINES */}
-      {/* ============================================================== */}
-      {activeTab === 'submissions' && (
+        {/* ============================================================== */}
+        {/* LIVE TEAM STATUS MONITOR (EXACT MATCH TO SCREENSHOT 2) */}
+        {/* ============================================================== */}
         <div
           style={{
             background: 'rgba(10, 17, 34, 0.88)',
             border: '1px solid rgba(0, 243, 255, 0.28)',
             borderRadius: '8px',
-            padding: '1.8rem',
+            padding: '1.4rem',
             backdropFilter: 'blur(12px)',
-            position: 'relative',
-            zIndex: 1
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)'
           }}
         >
-          <h2 style={{ color: 'var(--neon-cyan)', margin: '0 0 1rem 0', fontSize: '1.25rem', fontWeight: '700', ...adminSans }}>
-            ROUND SUBMISSIONS & QUALIFICATION MATRIX
-          </h2>
+          {/* Header and Search Bar */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '1rem',
+              marginBottom: '1.2rem',
+              paddingBottom: '0.8rem',
+              borderBottom: '1px solid rgba(0, 243, 255, 0.15)'
+            }}
+          >
+            <div>
+              <h3
+                style={{
+                  fontSize: '1.15rem',
+                  fontWeight: '800',
+                  color: 'var(--neon-amber)',
+                  letterSpacing: '0.03em',
+                  margin: 0,
+                  ...adminSans
+                }}
+              >
+                LIVE TEAM STATUS MONITOR
+              </h3>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', ...adminSans, marginTop: '0.2rem', fontWeight: '500' }}>
+                CONNECTED PARTICIPANT AGENTS
+              </div>
+            </div>
 
-          <div className="cyber-table-container" style={{ marginBottom: '2rem' }}>
-            <table className="cyber-table" style={{ width: '100%' }}>
+            {/* Search and Bulk Helpers */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+              <div style={{ position: 'relative', width: '220px' }}>
+                <input
+                  type="text"
+                  placeholder="Search Team Name or ID..."
+                  value={teamSearchQuery}
+                  onChange={(e) => setTeamSearchQuery(e.target.value)}
+                  style={{
+                    width: '100%',
+                    background: '#070c1a',
+                    border: '1px solid rgba(0, 243, 255, 0.3)',
+                    borderRadius: '4px',
+                    color: '#fff',
+                    fontSize: '0.82rem',
+                    ...adminSans,
+                    padding: '0.45rem 0.6rem 0.45rem 2rem'
+                  }}
+                />
+                <Search size={14} style={{ position: 'absolute', left: '0.6rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--neon-cyan)' }} />
+              </div>
+
+              <span style={{ fontSize: '0.72rem', color: '#64748b', ...adminSans, fontWeight: '600' }}>Mark Top 10:</span>
+              {[1, 2, 3, 4].map((rNum) => (
+                <button
+                  key={rNum}
+                  onClick={() => handleBulkSelectForRound(rNum, 10)}
+                  style={{
+                    background: 'rgba(13, 22, 44, 0.85)',
+                    border: '1px solid rgba(0, 243, 255, 0.3)',
+                    color: 'var(--neon-cyan)',
+                    fontSize: '0.72rem',
+                    ...adminSans,
+                    fontWeight: '700',
+                    padding: '0.35rem 0.55rem',
+                    borderRadius: '3px',
+                    cursor: 'pointer'
+                  }}
+                  title={`Mark Top 10 for Round ${rNum}`}
+                >
+                  R{rNum}
+                </button>
+              ))}
+              <button
+                onClick={() => setRoundQualifications({ 1: {}, 2: {}, 3: {}, 4: {} })}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid rgba(255, 42, 95, 0.3)',
+                  color: 'var(--neon-red)',
+                  fontSize: '0.72rem',
+                  ...adminSans,
+                  fontWeight: '600',
+                  padding: '0.35rem 0.55rem',
+                  borderRadius: '3px',
+                  cursor: 'pointer'
+                }}
+                title="Clear all qualifications"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="cyber-table-container">
+            <table className="cyber-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr>
-                  <th>TEAM NAME</th>
-                  <th>ROUND 1 QUALIFICATION</th>
-                  <th>ROUND 2 QUALIFICATION</th>
-                  <th>ROUND 3 QUALIFICATION</th>
-                  <th>ROUND 4 QUALIFICATION</th>
+                <tr style={{ borderBottom: '1px solid rgba(0, 243, 255, 0.2)' }}>
+                  <th style={{ color: 'var(--neon-amber)', ...adminSans, fontSize: '0.75rem', fontWeight: '800', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>TEAM NAME</th>
+                  <th style={{ color: 'var(--neon-amber)', ...adminSans, fontSize: '0.75rem', fontWeight: '800', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>CURRENT MISSION</th>
+                  <th style={{ color: 'var(--neon-amber)', ...adminSans, fontSize: '0.75rem', fontWeight: '800', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>CURRENT SCREEN</th>
+                  <th style={{ color: 'var(--neon-amber)', ...adminSans, fontSize: '0.75rem', fontWeight: '800', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>QUALIFICATION</th>
+                  <th style={{ color: 'var(--neon-amber)', ...adminSans, fontSize: '0.75rem', fontWeight: '800', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>STATUS</th>
+                  <th style={{ color: 'var(--neon-amber)', ...adminSans, fontSize: '0.75rem', fontWeight: '800', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>M1 SCORE</th>
+                  <th style={{ color: 'var(--neon-amber)', ...adminSans, fontSize: '0.75rem', fontWeight: '800', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>M2 SCORE</th>
+                  <th style={{ color: 'var(--neon-amber)', ...adminSans, fontSize: '0.75rem', fontWeight: '800', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>M3 SCORE</th>
+                  <th style={{ color: 'var(--neon-amber)', ...adminSans, fontSize: '0.75rem', fontWeight: '800', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>TOTAL PTS</th>
+                  <th style={{ color: 'var(--neon-amber)', ...adminSans, fontSize: '0.75rem', fontWeight: '800', padding: '0.8rem 0.6rem', letterSpacing: '0.04em' }}>SUBMISSION</th>
                 </tr>
               </thead>
               <tbody>
-                {leaderboard.map((team) => {
-                  const r1 = selectionHistory.find((s) => s.team_id === team.id && s.round_number === 1);
-                  const r2 = selectionHistory.find((s) => s.team_id === team.id && s.round_number === 2);
-                  const r3 = selectionHistory.find((s) => s.team_id === team.id && s.round_number === 3);
-                  const r4 = selectionHistory.find((s) => s.team_id === team.id && s.round_number === 4);
-
-                  const renderTag = (record) => {
-                    if (!record) return <span style={{ color: '#64748b' }}>—</span>;
-                    return record.selected ? (
-                      <span style={{ color: 'var(--neon-green)', fontWeight: '700', ...adminSans }}>✓ QUALIFIED</span>
-                    ) : (
-                      <span style={{ color: 'var(--neon-red)', fontWeight: '600', ...adminSans }}>✕ NOT SELECTED</span>
-                    );
-                  };
+                {filteredLeaderboard.map((team) => {
+                  const isEliminated = team.status === 'eliminated';
+                  const isAnyChecked =
+                    Boolean(roundQualifications[1]?.[team.id]) ||
+                    Boolean(roundQualifications[2]?.[team.id]) ||
+                    Boolean(roundQualifications[3]?.[team.id]) ||
+                    Boolean(roundQualifications[4]?.[team.id]);
 
                   return (
-                    <tr key={team.id}>
-                      <td style={{ fontWeight: '600', color: '#fff', ...adminSans }}>{team.team_name}</td>
-                      <td>{renderTag(r1)}</td>
-                      <td>{renderTag(r2)}</td>
-                      <td>{renderTag(r3)}</td>
-                      <td>{renderTag(r4)}</td>
+                    <tr
+                      key={team.id}
+                      style={{
+                        borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+                        background: isAnyChecked ? 'rgba(0, 243, 255, 0.04)' : undefined
+                      }}
+                    >
+                      {/* TEAM NAME */}
+                      <td style={{ padding: '0.75rem 0.6rem', fontWeight: '600', color: '#fff', ...adminSans }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ color: 'var(--neon-amber)', fontWeight: '700', fontSize: '0.82rem', ...adminSans }}>
+                            #{team.round_rank || team.rank}
+                          </span>
+                          {team.connected && <span className="pulse-dot" style={{ background: 'var(--neon-green)' }} />}
+                          <span>{team.team_name}</span>
+                        </div>
+                        <div style={{ fontSize: '0.68rem', color: '#64748b', ...adminMono }}>
+                          ID: {team.id?.slice(0, 10)}...
+                        </div>
+                      </td>
+
+                      {/* CURRENT MISSION */}
+                      <td style={{ padding: '0.75rem 0.6rem', ...adminSans, fontSize: '0.82rem', fontWeight: '500', color: '#cbd5e1' }}>
+                        Mission {team.current_round || 1}
+                      </td>
+
+                      {/* CURRENT SCREEN */}
+                      <td style={{ padding: '0.75rem 0.6rem', ...adminSans, fontSize: '0.8rem' }}>
+                        {isEliminated ? (
+                          <span style={{ color: 'var(--neon-red)', fontWeight: '600' }}>Eliminated</span>
+                        ) : currentState === GAME_STATES.LANDING ? (
+                          <span style={{ color: '#94a3b8' }}>Lobby (M1)</span>
+                        ) : currentState.includes('WAITING') ? (
+                          <span style={{ color: 'var(--neon-amber)', fontWeight: '600' }}>Press Start</span>
+                        ) : currentState.includes('ACTIVE') ? (
+                          <span style={{ color: 'var(--neon-green)', fontWeight: '600' }}>Active (M{team.current_round || 1})</span>
+                        ) : (
+                          <span style={{ color: 'var(--neon-cyan)', fontWeight: '600' }}>Results (M{currentRound})</span>
+                        )}
+                      </td>
+
+                      {/* QUALIFICATION - FOUR CHECKBOXES FOR ROUNDS 1, 2, 3, 4 */}
+                      <td style={{ padding: '0.75rem 0.6rem' }}>
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(2, minmax(88px, 1fr))',
+                            gap: '0.35rem',
+                            minWidth: '180px'
+                          }}
+                        >
+                          {[1, 2, 3, 4].map((rNum) => {
+                            const isChecked = Boolean(roundQualifications[rNum]?.[team.id]);
+                            return (
+                              <label
+                                key={rNum}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.35rem',
+                                  cursor: 'pointer',
+                                  fontSize: '0.73rem',
+                                  ...adminSans,
+                                  fontWeight: isChecked ? '700' : '500',
+                                  color: isChecked ? 'var(--neon-green)' : '#94a3b8',
+                                  background: isChecked ? 'rgba(0, 255, 136, 0.1)' : 'transparent',
+                                  padding: '0.15rem 0.35rem',
+                                  borderRadius: '3px',
+                                  border: isChecked ? '1px solid rgba(0, 255, 136, 0.3)' : '1px solid transparent'
+                                }}
+                                title={`Select ${team.team_name} for Round ${rNum}`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => toggleQualification(team.id, rNum)}
+                                  style={{
+                                    accentColor: 'var(--neon-cyan)',
+                                    cursor: 'pointer',
+                                    width: '14px',
+                                    height: '14px'
+                                  }}
+                                />
+                                <span>Qualify R{rNum}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </td>
+
+                      {/* STATUS - CLEAN STATUS PILL (ACTIVE DROPDOWN REMOVED) */}
+                      <td style={{ padding: '0.75rem 0.6rem' }}>
+                        <span
+                          className={`status-pill status-pill-${team.status || 'active'}`}
+                          style={{
+                            fontSize: '0.72rem',
+                            ...adminSans,
+                            whiteSpace: 'nowrap',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.35rem'
+                          }}
+                        >
+                          {team.connected && <span className="pulse-dot" style={{ background: 'var(--neon-green)', width: 6, height: 6 }} />}
+                          {team.status === 'selected'
+                            ? `Online QUALIFIED_M${team.current_round || 1}`
+                            : (team.status || 'ACTIVE').toUpperCase()}
+                        </span>
+                      </td>
+
+                      {/* M1 SCORE */}
+                      <td style={{ padding: '0.75rem 0.6rem', ...adminSans, fontVariantNumeric: 'tabular-nums', fontWeight: '600', color: '#cbd5e1' }}>
+                        {team.r1_score > 0 || currentRound >= 1 ? `${team.r1_score || 0} PTS` : '—'}
+                      </td>
+
+                      {/* M2 SCORE */}
+                      <td style={{ padding: '0.75rem 0.6rem', ...adminSans, fontVariantNumeric: 'tabular-nums', fontWeight: '600', color: '#cbd5e1' }}>
+                        {team.r2_score > 0 || currentRound >= 2 ? `${team.r2_score || 0} PTS` : '—'}
+                      </td>
+
+                      {/* M3 SCORE */}
+                      <td style={{ padding: '0.75rem 0.6rem', ...adminSans, fontVariantNumeric: 'tabular-nums', fontWeight: '600', color: '#cbd5e1' }}>
+                        {team.r3_score > 0 || currentRound >= 3 ? `${team.r3_score || 0} PTS` : '—'}
+                      </td>
+
+                      {/* TOTAL PTS */}
+                      <td style={{ padding: '0.75rem 0.6rem', ...adminSans, fontVariantNumeric: 'tabular-nums', fontWeight: '800', color: 'var(--neon-amber)' }}>
+                        {team.total_score || 0} PTS
+                      </td>
+
+                      {/* SUBMISSION */}
+                      <td style={{ padding: '0.75rem 0.6rem' }}>
+                        <div
+                          style={{
+                            maxWidth: '240px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            fontSize: '0.7rem',
+                            color: '#64748b',
+                            ...adminMono
+                          }}
+                          title={team.questions_solved > 0 ? `${team.questions_solved} challenges solved in ${team.total_time_seconds || 0}s` : '--'}
+                        >
+                          {team.questions_solved > 0 ? (
+                            <span style={{ color: '#94a3b8' }}>
+                              {`[{"solved":${team.questions_solved},"time":${team.total_time_seconds || 0},"m1":${team.r1_score || 0}}]`}
+                            </span>
+                          ) : (
+                            '--'
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
-
-          <h3 style={{ color: 'var(--neon-amber)', fontSize: '0.95rem', marginBottom: '0.8rem', ...adminSans, fontWeight: '700' }}>
-            IMMUTABLE EVENT LOGS
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '300px', overflowY: 'auto' }}>
-            {auditLogs.map((log) => (
-              <div
-                key={log.id}
-                style={{
-                  background: 'rgba(7, 12, 26, 0.85)',
-                  border: '1px solid rgba(0, 243, 255, 0.15)',
-                  padding: '0.6rem 0.9rem',
-                  borderRadius: '4px',
-                  fontSize: '0.75rem',
-                  ...adminMono,
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center'
-                }}
-              >
-                <div>
-                  <span style={{ color: 'var(--neon-amber)', marginRight: '0.6rem' }}>[{log.action}]</span>
-                  <span style={{ color: '#cbd5e1' }}>Admin: {log.admin_id} {log.metadata ? JSON.stringify(log.metadata) : ''}</span>
-                </div>
-                <div style={{ color: '#64748b' }}>{new Date(log.created_at).toLocaleTimeString()}</div>
-              </div>
-            ))}
-          </div>
         </div>
-      )}
+      </div>
 
       {/* Confirmation Modal */}
       {confirmModalConfig && (
@@ -1929,3 +1460,5 @@ export function AdminDashboard({ admin, gameSession, onResetDemo }) {
     </div>
   );
 }
+
+export default AdminDashboard;

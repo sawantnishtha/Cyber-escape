@@ -65,13 +65,14 @@ export function Round2Page({ team, onRoundComplete }) {
   }, [team?.id]);
 
   function updateCodeLetters(solvedSet) {
-    const fullCode = ['T', 'E', 'C', 'H'];
+    // 4-letter key 'TECH' unlocked in scrambled anagram format ['H', 'E', 'T', 'C']
+    const scrambled = GAME_CONFIG.ROUND_2.SCRAMBLED_LETTERS || ['H', 'E', 'T', 'C'];
     const letters = [];
     if (solvedSet.has(1)) {
-      letters.push(fullCode[0], fullCode[1]);
+      letters.push(scrambled[0], scrambled[1]);
     }
     if (solvedSet.has(2)) {
-      letters.push(fullCode[2], fullCode[3]);
+      letters.push(scrambled[2], scrambled[3]);
     }
     setUnlockedCodeLetters(letters);
   }
@@ -308,7 +309,8 @@ export function Round2Page({ team, onRoundComplete }) {
       soundEffects.playAccessGranted();
       setIncorrectCells(new Set());
       const currentNumber = currentCrossword.question_number;
-      await questionService.submitCrossword(team.id, currentNumber);
+      const timeTaken = Math.max(1, GAME_CONFIG.ROUND_2.DURATION_PER_CROSSWORD_SECONDS - timerSeconds);
+      await questionService.submitCrossword(team.id, currentNumber, timeTaken);
 
       const nextSolved = new Set(solvedCrosswords);
       nextSolved.add(currentNumber);
@@ -824,11 +826,11 @@ export function Round2Page({ team, onRoundComplete }) {
                 textTransform: 'uppercase'
               }}
             >
-              ROUND 2 CODE UNLOCK STATUS
+              KEY UNLOCK STATUS (SCRAMBLED ANAGRAM)
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              {['T', 'E', 'C', 'H'].map((char, idx) => {
-                const unlocked = unlockedCodeLetters.includes(char);
+              {(GAME_CONFIG.ROUND_2.SCRAMBLED_LETTERS || ['H', 'E', 'T', 'C']).map((char, idx) => {
+                const unlocked = idx < unlockedCodeLetters.length;
                 return (
                   <div
                     key={idx}
