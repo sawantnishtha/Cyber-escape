@@ -98,29 +98,46 @@ VALUES ('CESA Faculty & Organizers', 'ADM-2007', 'superadmin')
 ON CONFLICT (admin_key_hash) 
 DO UPDATE SET admin_name = EXCLUDED.admin_name, role = EXCLUDED.role;
 
--- 3. SEED 20 TEAMS WITH KEY FORMAT CYB-001 TO CYB-020 (Official Attendance Roster)
+-- 3. SEED 23 TEAMS WITH KEY FORMAT CYB-001 TO CYB-023 (Official Final Roster)
+-- Clean up any obsolete teams not in the final 23 list
+DELETE FROM team_members WHERE team_id NOT IN (
+    SELECT id FROM teams WHERE team_key_hash IN (
+        'CYB-001', 'CYB-002', 'CYB-003', 'CYB-004', 'CYB-005', 'CYB-006', 'CYB-007', 'CYB-008',
+        'CYB-009', 'CYB-010', 'CYB-011', 'CYB-012', 'CYB-013', 'CYB-014', 'CYB-015', 'CYB-016',
+        'CYB-017', 'CYB-018', 'CYB-019', 'CYB-020', 'CYB-021', 'CYB-022', 'CYB-023'
+    )
+);
+DELETE FROM teams WHERE team_key_hash NOT IN (
+    'CYB-001', 'CYB-002', 'CYB-003', 'CYB-004', 'CYB-005', 'CYB-006', 'CYB-007', 'CYB-008',
+    'CYB-009', 'CYB-010', 'CYB-011', 'CYB-012', 'CYB-013', 'CYB-014', 'CYB-015', 'CYB-016',
+    'CYB-017', 'CYB-018', 'CYB-019', 'CYB-020', 'CYB-021', 'CYB-022', 'CYB-023'
+);
+
 INSERT INTO teams (team_name, team_key_hash, current_round, status)
 VALUES
-('Escaper', 'CYB-001', 1, 'active'),
-('Ctrl Alt Elite', 'CYB-002', 1, 'active'),
-('oops squad', 'CYB-003', 1, 'active'),
-('Team Toxic', 'CYB-004', 1, 'active'),
-('Ravenclaw', 'CYB-005', 1, 'active'),
-('Error 404', 'CYB-006', 1, 'active'),
-('ByteX', 'CYB-007', 1, 'active'),
-('Neo', 'CYB-008', 1, 'active'),
-('Team Elite', 'CYB-009', 1, 'active'),
-('CyberPunk', 'CYB-010', 1, 'active'),
-('VisionX', 'CYB-011', 1, 'active'),
-('CoreX', 'CYB-012', 1, 'active'),
-('Team Deathloop', 'CYB-013', 1, 'active'),
-('Team Vedant', 'CYB-014', 1, 'active'),
-('Cyber Titans', 'CYB-015', 1, 'active'),
-('Shadow Hackers', 'CYB-016', 1, 'active'),
-('Zero Day', 'CYB-017', 1, 'active'),
-('Kernel Panic', 'CYB-018', 1, 'active'),
-('Cipher Squad', 'CYB-019', 1, 'active'),
-('Terminal Force', 'CYB-020', 1, 'active')
+('Team Toxic', 'CYB-001', 1, 'active'),
+('Wonder women', 'CYB-002', 1, 'active'),
+('Oops squad', 'CYB-003', 1, 'active'),
+('Vision X', 'CYB-004', 1, 'active'),
+('Cyber punk', 'CYB-005', 1, 'active'),
+('Team Death loop', 'CYB-006', 1, 'active'),
+('4SH', 'CYB-007', 1, 'active'),
+('ARK', 'CYB-008', 1, 'active'),
+('NIV', 'CYB-009', 1, 'active'),
+('Bytex', 'CYB-010', 1, 'active'),
+('Raven claw', 'CYB-011', 1, 'active'),
+('Team outlaws', 'CYB-012', 1, 'active'),
+('Team rocket', 'CYB-013', 1, 'active'),
+('Corex', 'CYB-014', 1, 'active'),
+('Neo', 'CYB-015', 1, 'active'),
+('Ctrl alt elite', 'CYB-016', 1, 'active'),
+('Team Elite', 'CYB-017', 1, 'active'),
+('Escapers', 'CYB-018', 1, 'active'),
+('The Escape Artists', 'CYB-019', 1, 'active'),
+('Tremor Titans', 'CYB-020', 1, 'active'),
+('Team Dhurandar', 'CYB-021', 1, 'active'),
+('Tech Titans', 'CYB-022', 1, 'active'),
+('Error 4O4', 'CYB-023', 1, 'active')
 ON CONFLICT (team_key_hash) 
 DO UPDATE SET 
   team_name = EXCLUDED.team_name,
@@ -705,28 +722,28 @@ VALUES
   ]
 }', 'COMPLETED', 300, 'Consider key networking and programming practices: Debugging, Database systems, String variables, Network Protocols, and Data Packets.');
 
--- 13. INSERT ROUND 3 BINARY QUESTIONS (4 Questions)
+-- 13. INSERT ROUND 3 BINARY QUESTIONS (4 Questions - 4 mins / 240 seconds per question)
 INSERT INTO questions (round_number, question_number, question_type, difficulty, question_data, correct_answer, time_limit_seconds, hint_data)
 VALUES
 (3, 1, 'binary', 'easy', '{
   "binary": "01001100 01001111 01000011 01001011\n01001001 01010100",
   "instruction": "Decode the 2-word system instruction from the incoming 8-bit binary bitstream."
-}', 'LOCK IT', 60, 'First word: L-O-C-K (76, 79, 67, 75); Second word: I-T (73, 84).'),
+}', 'LOCK IT', 240, 'First word: L-O-C-K (76, 79, 67, 75); Second word: I-T (73, 84).'),
 
 (3, 2, 'binary', 'easy', '{
   "binary": "01000011 01001000 01000101 01000011 01001011\n01001001 01010100",
   "instruction": "Decode the 2-word integrity verification command from the 8-bit stream."
-}', 'CHECK IT', 60, 'First word: C-H-E-C-K (67, 72, 69, 67, 75); Second word: I-T (73, 84).'),
+}', 'CHECK IT', 240, 'First word: C-H-E-C-K (67, 72, 69, 67, 75); Second word: I-T (73, 84).'),
 
 (3, 3, 'binary', 'medium', '{
   "binary": "01000110 01001001 01001110 01000100\n01010100 01001000 01000101\n01001011 01000101 01011001",
   "instruction": "Decode the 3-word cryptographic puzzle clue from the binary bitstream."
-}', 'FIND THE KEY', 60, 'Three words: F-I-N-D (70, 73, 78, 68), T-H-E (84, 72, 69), K-E-Y (75, 69, 89).'),
+}', 'FIND THE KEY', 240, 'Three words: F-I-N-D (70, 73, 78, 68), T-H-E (84, 72, 69), K-E-Y (75, 69, 89).'),
 
 (3, 4, 'binary', 'hard', '{
   "binary": "01000110 01001111 01001100 01001100 01001111 01010111\n01010100 01001000 01000101\n01010000 01000001 01010100 01001000",
   "instruction": "Decode the 3-word system navigation route instruction from the binary bitstream."
-}', 'FOLLOW THE PATH', 60, 'Three words: F-O-L-L-O-W (70, 79, 76, 76, 79, 87), T-H-E (84, 72, 69), P-A-T-H (80, 65, 84, 72).');
+}', 'FOLLOW THE PATH', 240, 'Three words: F-O-L-L-O-W (70, 79, 76, 76, 79, 87), T-H-E (84, 72, 69), P-A-T-H (80, 65, 84, 72).');
 
 -- 14. INSERT ROUND 4 CODE BLANKS (4 Questions)
 INSERT INTO questions (round_number, question_number, question_type, difficulty, question_data, correct_answer, time_limit_seconds, hint_data)

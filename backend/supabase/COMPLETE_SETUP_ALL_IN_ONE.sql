@@ -791,13 +791,13 @@ DO UPDATE SET
   time_limit_seconds = EXCLUDED.time_limit_seconds,
   hint_data = EXCLUDED.hint_data;
 
--- 7. SEED ROUND 3 DEMO BINARY-TO-ASCII (4 questions)
+-- 7. SEED ROUND 3 DEMO BINARY-TO-ASCII (4 questions - 240s each)
 INSERT INTO questions (round_number, question_number, question_type, difficulty, question_data, correct_answer, time_limit_seconds, hint_data)
 VALUES
-(3, 1, 'binary', 'easy', '{"binary": "01000001", "instruction": "Convert the 8-bit binary code to its corresponding ASCII character."}', 'A', 60, '01000001 in decimal is 64 + 1 = 65.'),
-(3, 2, 'binary', 'easy', '{"binary": "01000010", "instruction": "Convert the 8-bit binary code to its corresponding ASCII character."}', 'B', 60, '01000010 in decimal is 64 + 2 = 66.'),
-(3, 3, 'binary', 'medium', '{"binary": "01000011", "instruction": "Convert the 8-bit binary code to its corresponding ASCII character."}', 'C', 60, '01000011 in decimal is 64 + 2 + 1 = 67.'),
-(3, 4, 'binary', 'medium', '{"binary": "01000100", "instruction": "Convert the 8-bit binary code to its corresponding ASCII character."}', 'D', 60, '01000100 in decimal is 64 + 4 = 68.')
+(3, 1, 'binary', 'easy', '{"binary": "01000001", "instruction": "Convert the 8-bit binary code to its corresponding ASCII character."}', 'A', 240, '01000001 in decimal is 64 + 1 = 65.'),
+(3, 2, 'binary', 'easy', '{"binary": "01000010", "instruction": "Convert the 8-bit binary code to its corresponding ASCII character."}', 'B', 240, '01000010 in decimal is 64 + 2 = 66.'),
+(3, 3, 'binary', 'medium', '{"binary": "01000011", "instruction": "Convert the 8-bit binary code to its corresponding ASCII character."}', 'C', 240, '01000011 in decimal is 64 + 2 + 1 = 67.'),
+(3, 4, 'binary', 'medium', '{"binary": "01000100", "instruction": "Convert the 8-bit binary code to its corresponding ASCII character."}', 'D', 240, '01000100 in decimal is 64 + 4 = 68.')
 ON CONFLICT (round_number, question_number) DO NOTHING;
 
 -- 8. SEED ROUND 4 DEMO CODING BLANKS (4 questions in C++, Python, Java)
