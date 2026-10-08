@@ -357,6 +357,9 @@ END;
 $$;
 
 -- 3. SUBMIT QUESTION ANSWER (SECURE SERVER-SIDE EVALUATION)
+DROP FUNCTION IF EXISTS public.submit_question_answer(uuid, integer, integer, text, numeric) CASCADE;
+DROP FUNCTION IF EXISTS public.submit_question_answer(uuid, integer, integer, text) CASCADE;
+
 CREATE OR REPLACE FUNCTION submit_question_answer(
     p_team_id UUID,
     p_round_number INT,
@@ -374,6 +377,8 @@ DECLARE
     v_attempt_count INT := 0;
     v_already_correct BOOLEAN := FALSE;
     v_solved_count INT := 0;
+    v_clean_expected TEXT;
+    v_clean_submitted TEXT;
 BEGIN
     -- Check if question exists
     SELECT * INTO v_question 
@@ -409,9 +414,38 @@ BEGIN
       AND round_number = p_round_number 
       AND question_number = p_question_number;
 
-    -- Check answer (case-insensitive trim)
-    IF UPPER(TRIM(v_question.correct_answer)) = UPPER(TRIM(p_submitted_answer)) THEN
+    v_clean_expected := REGEXP_REPLACE(UPPER(TRIM(v_question.correct_answer)), '^[A-D][\.\:\)\-]\s*', '');
+    v_clean_submitted := REGEXP_REPLACE(UPPER(TRIM(p_submitted_answer)), '^[A-D][\.\:\)\-]\s*', '');
+
+    -- Match exact, normalized spaces, or normalized commas
+    IF v_clean_expected = v_clean_submitted 
+       OR REGEXP_REPLACE(v_clean_expected, '\s+', ' ', 'g') = REGEXP_REPLACE(v_clean_submitted, '\s+', ' ', 'g')
+       OR REGEXP_REPLACE(v_clean_expected, '\s*,\s*', ',', 'g') = REGEXP_REPLACE(v_clean_submitted, '\s*,\s*', ',', 'g')
+       OR (LENGTH(v_clean_expected) > 2 AND UPPER(TRIM(p_submitted_answer)) LIKE '%' || v_clean_expected || '%')
+       OR (LENGTH(v_clean_submitted) > 2 AND UPPER(TRIM(v_question.correct_answer)) LIKE '%' || v_clean_submitted || '%') THEN
         v_is_correct := TRUE;
+    END IF;
+
+    -- Special handling for MCQ (match single letter A/B/C/D if letter was sent)
+    IF v_question.question_type = 'mcq' AND NOT v_is_correct THEN
+        IF UPPER(TRIM(p_submitted_answer)) IN ('A', 'B', 'C', 'D') THEN
+            DECLARE
+                v_opts JSONB;
+                v_opt_idx INT;
+                v_letter TEXT := UPPER(TRIM(p_submitted_answer));
+            BEGIN
+                v_opts := v_question.question_data->'options';
+                IF jsonb_typeof(v_opts) = 'array' THEN
+                    FOR v_opt_idx IN 0 .. (jsonb_array_length(v_opts) - 1) LOOP
+                        IF v_letter = CHR(65 + v_opt_idx) THEN
+                            IF REGEXP_REPLACE(UPPER(TRIM(v_opts->>v_opt_idx)), '^[A-D][\.\:\)\-]\s*', '') = v_clean_expected THEN
+                                v_is_correct := TRUE;
+                            END IF;
+                        END IF;
+                    END LOOP;
+                END IF;
+            END;
+        END IF;
     END IF;
 
     -- Record attempt

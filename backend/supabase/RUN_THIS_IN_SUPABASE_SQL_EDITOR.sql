@@ -526,21 +526,37 @@ BEGIN
       AND round_number = p_round_number 
       AND question_number = p_question_number;
 
-    v_clean_expected := UPPER(TRIM(v_question.correct_answer));
-    v_clean_submitted := UPPER(TRIM(p_submitted_answer));
+    v_clean_expected := REGEXP_REPLACE(UPPER(TRIM(v_question.correct_answer)), '^[A-D][\.\:\)\-]\s*', '');
+    v_clean_submitted := REGEXP_REPLACE(UPPER(TRIM(p_submitted_answer)), '^[A-D][\.\:\)\-]\s*', '');
 
     -- Match exact, normalized spaces, or normalized commas
     IF v_clean_expected = v_clean_submitted 
        OR REGEXP_REPLACE(v_clean_expected, '\s+', ' ', 'g') = REGEXP_REPLACE(v_clean_submitted, '\s+', ' ', 'g')
-       OR REGEXP_REPLACE(v_clean_expected, '\s*,\s*', ',', 'g') = REGEXP_REPLACE(v_clean_submitted, '\s*,\s*', ',', 'g') THEN
+       OR REGEXP_REPLACE(v_clean_expected, '\s*,\s*', ',', 'g') = REGEXP_REPLACE(v_clean_submitted, '\s*,\s*', ',', 'g')
+       OR (LENGTH(v_clean_expected) > 2 AND UPPER(TRIM(p_submitted_answer)) LIKE '%' || v_clean_expected || '%')
+       OR (LENGTH(v_clean_submitted) > 2 AND UPPER(TRIM(v_question.correct_answer)) LIKE '%' || v_clean_submitted || '%') THEN
         v_is_correct := TRUE;
     END IF;
 
-    -- Special handling for MCQ (match single letter A/B/C/D if answer text was sent or vice versa)
+    -- Special handling for MCQ (match single letter A/B/C/D if letter was sent)
     IF v_question.question_type = 'mcq' AND NOT v_is_correct THEN
-        IF v_clean_submitted = SUBSTRING(v_clean_expected FROM 1 FOR 1) 
-           OR v_clean_expected = SUBSTRING(v_clean_submitted FROM 1 FOR 1) THEN
-            v_is_correct := TRUE;
+        IF UPPER(TRIM(p_submitted_answer)) IN ('A', 'B', 'C', 'D') THEN
+            DECLARE
+                v_opts JSONB;
+                v_opt_idx INT;
+                v_letter TEXT := UPPER(TRIM(p_submitted_answer));
+            BEGIN
+                v_opts := v_question.question_data->'options';
+                IF jsonb_typeof(v_opts) = 'array' THEN
+                    FOR v_opt_idx IN 0 .. (jsonb_array_length(v_opts) - 1) LOOP
+                        IF v_letter = CHR(65 + v_opt_idx) THEN
+                            IF REGEXP_REPLACE(UPPER(TRIM(v_opts->>v_opt_idx)), '^[A-D][\.\:\)\-]\s*', '') = v_clean_expected THEN
+                                v_is_correct := TRUE;
+                            END IF;
+                        END IF;
+                    END LOOP;
+                END IF;
+            END;
         END IF;
     END IF;
 
@@ -583,77 +599,77 @@ INSERT INTO questions (round_number, question_number, question_type, difficulty,
 VALUES
 (1, 1, 'mcq', 'easy', '{
   "question": "Which device is commonly used to connect multiple computers in a network?",
-  "options": ["A. Switch", "B. Keyboard", "C. Scanner", "D. Monitor"]
+  "options": ["Switch", "Keyboard", "Scanner", "Monitor"]
 }', 'Switch', 60, 'It operates at the Data Link Layer and forwards frames to specific MAC addresses.'),
 
 (1, 2, 'mcq', 'easy', '{
   "question": "Which one is NOT a programming language?",
-  "options": ["A. Python", "B. Java", "C. C++", "D. Chrome"]
+  "options": ["Python", "Java", "C++", "Chrome"]
 }', 'Chrome', 60, 'One of these is a web browser developed by Google.'),
 
 (1, 3, 'mcq', 'easy', '{
   "question": "What will be the output of this Python code?\n\nx = 5\nx = x + 2\nprint(x)",
-  "options": ["A. 5", "B. 7", "C. 2", "D. 52"]
+  "options": ["5", "7", "2", "52"]
 }', '7', 60, 'Initial value is 5, then incremented by 2.'),
 
 (1, 4, 'mcq', 'easy', '{
   "question": "What does == generally mean in programming?",
-  "options": ["A. Assignment", "B. Comparison for equality", "C. Addition", "D. Not equal"]
+  "options": ["Assignment", "Comparison for equality", "Addition", "Not equal"]
 }', 'Comparison for equality', 60, 'Single = assigns values; double == evaluates whether two expressions are equal.'),
 
 (1, 5, 'mcq', 'medium', '{
   "question": "If a program takes 1 second to check each item in a list of 100 items one by one, what happens approximately if the list has 200 items?",
-  "options": ["A. It may take around 2 seconds", "B. It will always take 1 second", "C. It will take 100 seconds", "D. It cannot be determined"]
+  "options": ["It may take around 2 seconds", "It will always take 1 second", "It will take 100 seconds", "It cannot be determined"]
 }', 'It may take around 2 seconds', 60, 'Linear O(n) scan scales directly with the number of elements in the list.'),
 
 (1, 6, 'mcq', 'easy', '{
   "question": "A website URL starts with https://. What does the S mainly indicate?",
-  "options": ["A. The website is faster", "B. The connection is secured using encryption", "C. The website is free", "D. The website has no advertisements"]
+  "options": ["The website is faster", "The connection is secured using encryption", "The website is free", "The website has no advertisements"]
 }', 'The connection is secured using encryption', 60, 'It indicates SSL/TLS encrypted network communication.'),
 
 (1, 7, 'mcq', 'medium', '{
   "question": "Which layer of the OSI model is responsible for routing packets?",
-  "options": ["A. Data Link", "B. Network", "C. Transport", "D. Session"]
+  "options": ["Data Link", "Network", "Transport", "Session"]
 }', 'Network', 60, 'Routers inspect IP packet headers at Layer 3 of the OSI stack.'),
 
 (1, 8, 'mcq', 'easy', '{
   "question": "What does URL stand for?",
-  "options": ["A. Uniform Resource Locator", "B. Universal Routing Link", "C. Uniform Reference Link", "D. Unified Resource Location"]
+  "options": ["Uniform Resource Locator", "Universal Routing Link", "Uniform Reference Link", "Unified Resource Location"]
 }', 'Uniform Resource Locator', 60, 'The standard web address identifier specifying resource location.'),
 
 (1, 9, 'mcq', 'easy', '{
   "question": "What does SQL primarily deal with?",
-  "options": ["A. Image processing", "B. Databases", "C. Operating systems", "D. Network cables"]
+  "options": ["Image processing", "Databases", "Operating systems", "Network cables"]
 }', 'Databases', 60, 'Structured Query Language manages relational database management systems.'),
 
 (1, 10, 'mcq', 'easy', '{
   "question": "Which HTML tag is used to create a hyperlink?",
-  "options": ["A. <link>", "B. <a>", "C. <href>", "D. <url>"]
+  "options": ["<link>", "<a>", "<href>", "<url>"]
 }', '<a>', 60, 'The anchor tag with href attribute embeds hyperlinks in HTML documents.'),
 
 (1, 11, 'mcq', 'easy', '{
   "question": "Which of the following is NOT an operating system?",
-  "options": ["A. Linux", "B. Windows", "C. Oracle", "D. macOS"]
+  "options": ["Linux", "Windows", "Oracle", "macOS"]
 }', 'Oracle', 60, 'Oracle is renowned as an enterprise database and software vendor, not an OS.'),
 
 (1, 12, 'mcq', 'medium', '{
   "question": "Which data structure follows the LIFO principle?",
-  "options": ["A. Queue", "B. Stack", "C. Linked List", "D. Tree"]
+  "options": ["Queue", "Stack", "Linked List", "Tree"]
 }', 'Stack', 60, 'Last In, First Out like a stack of cafeteria trays or call stack frames.'),
 
 (1, 13, 'mcq', 'medium', '{
   "question": "Which HTTP status code means \"Not Found\"?",
-  "options": ["A. 200", "B. 301", "C. 404", "D. 500"]
+  "options": ["200", "301", "404", "500"]
 }', '404', 60, 'Standard HTTP client error code returned when resource is missing.'),
 
 (1, 14, 'mcq', 'medium', '{
   "question": "In Git, which command is used to create a copy of a remote repository?",
-  "options": ["A. git push", "B. git clone", "C. git merge", "D. git commit"]
+  "options": ["git push", "git clone", "git merge", "git commit"]
 }', 'git clone', 60, 'Downloads the complete remote repository tree and git revision history.'),
 
 (1, 15, 'mcq', 'hard', '{
   "question": "A user receives an email that appears to come from their bank and asks them to click a link and verify their password. What is the most likely attack?",
-  "options": ["A. Phishing", "B. DDoS", "C. Buffer Overflow", "D. Port Scanning"]
+  "options": ["Phishing", "DDoS", "Buffer Overflow", "Port Scanning"]
 }', 'Phishing', 60, 'Social engineering deception designed to steal authentication credentials.');
 
 -- 12. INSERT ROUND 2 CROSSWORDS (2 Crosswords)
