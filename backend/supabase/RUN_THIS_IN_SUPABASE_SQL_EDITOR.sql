@@ -99,19 +99,15 @@ ON CONFLICT (admin_key_hash)
 DO UPDATE SET admin_name = EXCLUDED.admin_name, role = EXCLUDED.role;
 
 -- 3. SEED 23 TEAMS WITH KEY FORMAT CYB-001 TO CYB-023 (Official Final Roster)
--- Clean up any obsolete teams not in the final 23 list
-DELETE FROM team_members WHERE team_id NOT IN (
-    SELECT id FROM teams WHERE team_key_hash IN (
-        'CYB-001', 'CYB-002', 'CYB-003', 'CYB-004', 'CYB-005', 'CYB-006', 'CYB-007', 'CYB-008',
-        'CYB-009', 'CYB-010', 'CYB-011', 'CYB-012', 'CYB-013', 'CYB-014', 'CYB-015', 'CYB-016',
-        'CYB-017', 'CYB-018', 'CYB-019', 'CYB-020', 'CYB-021', 'CYB-022', 'CYB-023'
-    )
-);
-DELETE FROM teams WHERE team_key_hash NOT IN (
-    'CYB-001', 'CYB-002', 'CYB-003', 'CYB-004', 'CYB-005', 'CYB-006', 'CYB-007', 'CYB-008',
-    'CYB-009', 'CYB-010', 'CYB-011', 'CYB-012', 'CYB-013', 'CYB-014', 'CYB-015', 'CYB-016',
-    'CYB-017', 'CYB-018', 'CYB-019', 'CYB-020', 'CYB-021', 'CYB-022', 'CYB-023'
-);
+-- Wipe previous team test data completely to avoid unique constraint collisions on team_name / team_key_hash
+DELETE FROM team_members;
+DELETE FROM round_results;
+DELETE FROM round_selections;
+DELETE FROM team_words;
+DELETE FROM question_attempts;
+DELETE FROM final_riddle_attempts;
+DELETE FROM leaderboard_cache;
+DELETE FROM teams;
 
 INSERT INTO teams (team_name, team_key_hash, current_round, status)
 VALUES
@@ -137,15 +133,7 @@ VALUES
 ('Tremor Titans', 'CYB-020', 1, 'active'),
 ('Team Dhurandar', 'CYB-021', 1, 'active'),
 ('Tech Titans', 'CYB-022', 1, 'active'),
-('Error 4O4', 'CYB-023', 1, 'active')
-ON CONFLICT (team_key_hash) 
-DO UPDATE SET 
-  team_name = EXCLUDED.team_name,
-  current_round = 1,
-  status = 'active';
-
--- Also clear out legacy demo keys if present
-DELETE FROM teams WHERE team_key_hash LIKE 'CE-DEMO-%';
+('Error 4O4', 'CYB-023', 1, 'active');
 
 -- 3.1 SEED REGISTERED TEAM MEMBERS
 DELETE FROM team_members WHERE team_id IN (SELECT id FROM teams WHERE team_key_hash LIKE 'CYB-%');

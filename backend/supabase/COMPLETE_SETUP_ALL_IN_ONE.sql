@@ -716,29 +716,45 @@ VALUES
 (4, 'SYSTEM OVERRIDE', 'Multi-language code reconstruction. Fill the missing blanks in C++, Python, or Java to execute.', '90 seconds per question. Select your language. 2-3 blanks to solve.', 360, 'pending')
 ON CONFLICT (round_number) DO NOTHING;
 
--- 3. SEED 15 DEMO TEAMS
+-- 3. SEED 23 TEAMS WITH KEY FORMAT CYB-001 TO CYB-023 (Official Final Roster)
+DELETE FROM team_members;
+DELETE FROM round_results;
+DELETE FROM round_selections;
+DELETE FROM team_words;
+DELETE FROM question_attempts;
+DELETE FROM final_riddle_attempts;
+DELETE FROM leaderboard_cache;
+DELETE FROM teams;
+
 INSERT INTO teams (team_name, team_key_hash, current_round, status)
 VALUES
-('TEAM ALPHA', 'CE-DEMO-001', 1, 'active'),
-('TEAM BETA', 'CE-DEMO-002', 1, 'active'),
-('TEAM GAMMA', 'CE-DEMO-003', 1, 'active'),
-('TEAM DELTA', 'CE-DEMO-004', 1, 'active'),
-('TEAM EPSILON', 'CE-DEMO-005', 1, 'active'),
-('TEAM ZETA', 'CE-DEMO-006', 1, 'active'),
-('TEAM ETA', 'CE-DEMO-007', 1, 'active'),
-('TEAM THETA', 'CE-DEMO-008', 1, 'active'),
-('TEAM IOTA', 'CE-DEMO-009', 1, 'active'),
-('TEAM KAPPA', 'CE-DEMO-010', 1, 'active'),
-('TEAM LAMBDA', 'CE-DEMO-011', 1, 'active'),
-('TEAM MU', 'CE-DEMO-012', 1, 'active'),
-('TEAM NEXUS', 'CE-DEMO-013', 1, 'active'),
-('TEAM QUANTUM', 'CE-DEMO-014', 1, 'active'),
-('TEAM PHOENIX', 'CE-DEMO-015', 1, 'active')
-ON CONFLICT (team_key_hash) DO NOTHING;
+('Team Toxic', 'CYB-001', 1, 'active'),
+('Wonder women', 'CYB-002', 1, 'active'),
+('Oops squad', 'CYB-003', 1, 'active'),
+('Vision X', 'CYB-004', 1, 'active'),
+('Cyber punk', 'CYB-005', 1, 'active'),
+('Team Death loop', 'CYB-006', 1, 'active'),
+('4SH', 'CYB-007', 1, 'active'),
+('ARK', 'CYB-008', 1, 'active'),
+('NIV', 'CYB-009', 1, 'active'),
+('Bytex', 'CYB-010', 1, 'active'),
+('Raven claw', 'CYB-011', 1, 'active'),
+('Team outlaws', 'CYB-012', 1, 'active'),
+('Team rocket', 'CYB-013', 1, 'active'),
+('Corex', 'CYB-014', 1, 'active'),
+('Neo', 'CYB-015', 1, 'active'),
+('Ctrl alt elite', 'CYB-016', 1, 'active'),
+('Team Elite', 'CYB-017', 1, 'active'),
+('Escapers', 'CYB-018', 1, 'active'),
+('The Escape Artists', 'CYB-019', 1, 'active'),
+('Tremor Titans', 'CYB-020', 1, 'active'),
+('Team Dhurandar', 'CYB-021', 1, 'active'),
+('Tech Titans', 'CYB-022', 1, 'active'),
+('Error 4O4', 'CYB-023', 1, 'active');
 
 -- 4. SEED ADMIN USER
 INSERT INTO admin_users (admin_name, admin_key_hash, role)
-VALUES ('CESA Faculty & Organizers', 'ADMIN-CYBER-2026', 'superadmin')
+VALUES ('CESA Faculty & Organizers', 'ADM-2007', 'superadmin')
 ON CONFLICT (admin_key_hash) DO NOTHING;
 
 -- 5. SEED ROUND 1 DEMO MCQs (8 questions)
