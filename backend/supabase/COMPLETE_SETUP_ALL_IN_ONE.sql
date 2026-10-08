@@ -717,13 +717,7 @@ VALUES
 ON CONFLICT (round_number) DO NOTHING;
 
 -- 3. SEED 23 TEAMS WITH KEY FORMAT CYB-001 TO CYB-023 (Official Final Roster)
-DELETE FROM team_members;
-DELETE FROM round_results;
-DELETE FROM round_selections;
-DELETE FROM team_words;
-DELETE FROM question_attempts;
-DELETE FROM final_riddle_attempts;
-DELETE FROM leaderboard_cache;
+-- Cleanly delete all existing teams (cascades to all child tables automatically)
 DELETE FROM teams;
 
 INSERT INTO teams (team_name, team_key_hash, current_round, status)

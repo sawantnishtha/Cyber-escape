@@ -99,14 +99,7 @@ ON CONFLICT (admin_key_hash)
 DO UPDATE SET admin_name = EXCLUDED.admin_name, role = EXCLUDED.role;
 
 -- 3. SEED 23 TEAMS WITH KEY FORMAT CYB-001 TO CYB-023 (Official Final Roster)
--- Wipe previous team test data completely to avoid unique constraint collisions on team_name / team_key_hash
-DELETE FROM team_members;
-DELETE FROM round_results;
-DELETE FROM round_selections;
-DELETE FROM team_words;
-DELETE FROM question_attempts;
-DELETE FROM final_riddle_attempts;
-DELETE FROM leaderboard_cache;
+-- Cleanly delete all existing teams (cascades to all child tables automatically)
 DELETE FROM teams;
 
 INSERT INTO teams (team_name, team_key_hash, current_round, status)
@@ -135,64 +128,7 @@ VALUES
 ('Tech Titans', 'CYB-022', 1, 'active'),
 ('Error 4O4', 'CYB-023', 1, 'active');
 
--- 3.1 SEED REGISTERED TEAM MEMBERS
-DELETE FROM team_members WHERE team_id IN (SELECT id FROM teams WHERE team_key_hash LIKE 'CYB-%');
 
-INSERT INTO team_members (team_id, member_name, member_identifier)
-SELECT t.id, m.name, m.identifier
-FROM teams t
-JOIN (VALUES
-  ('CYB-001', 'SWAR UMBARKAR', 'vu1f2627117 (FE/CE)'),
-  ('CYB-001', 'HARSH KODAL', 'vu1f2627106 (FE/CE)'),
-  ('CYB-001', 'JAYANT DALVI', 'vu1f2627105 (FE/CE)'),
-  ('CYB-001', 'ROHAN BHUSAL', 'vu1f2627107 (FE/CE)'),
-  ('CYB-002', 'SHLOK KHAIRNAR', 'vu1f2627115 (FE/CE)'),
-  ('CYB-002', 'TANISH DAHIWALKAR', 'vu1f2627103 (FE/CE)'),
-  ('CYB-002', 'SUSHANTH AVADHOOTHA', 'vu1f2627112 (FE/CE)'),
-  ('CYB-002', 'KARAN CHAUDHARI', 'vu1f2627111 (FE/CE)'),
-  ('CYB-003', '007_TASMIYA KAZI TE B', 'vu1s2425007 (BE/CE)'),
-  ('CYB-003', '008_RIDDHI SAWANT TE B', 'vu1s2425008 (BE/CE)'),
-  ('CYB-003', 'ANVITA KEER TE B', 'vu1s2425011 (BE/CE)'),
-  ('CYB-003', '004_RIZWAN SHAIKH TE B', 'vu1s2425004 (BE/CE)'),
-  ('CYB-004', 'Sulem Salim Shaikh', 'vu1s2526007 (TE/CE)'),
-  ('CYB-004', 'DSE_002_Tanmay Mhatre', 'vu1s2526002 (TE/CE)'),
-  ('CYB-004', 'B_DSE_020_HARSH SHINDE', 'vu1s2526020 (TE/CE)'),
-  ('CYB-005', '4102_Subhodip_Mathur TE B Batch-A', 'vu1f2324102 (BE/CE)'),
-  ('CYB-005', '4107_Sunnyy_Kadam TE-B Batch-A', 'vu1f2324107 (BE/CE)'),
-  ('CYB-005', '4036_PRANIT JADHAV_TE-A-BATCH-B', 'vu1f2324036 (BE/CE)'),
-  ('CYB-005', '4106_Siddhesh_Achrekar TE-B BATCH-A', 'vu1f2324106 (BE/CE)'),
-  ('CYB-006', 'B076_OM BAILKAR', 'vu1f2526076 (SE/CE)'),
-  ('CYB-006', 'RITESH RANE', 'vu1f2526092 (SE/CE)'),
-  ('CYB-006', 'B086_VIGNESH PONNA', 'vu1f2526086 (SE/CE)'),
-  ('CYB-006', 'OM JADHAV', 'vu1f2526071 (SE/CE)'),
-  ('CYB-007', 'Pranav Godse', 'vu1f2425109 (TE/CE)'),
-  ('CYB-007', 'Shravan Samalla', 'vu1f2425097 (TE/CE)'),
-  ('CYB-007', 'RUSHIKESH TOKE', 'vu1f2425101 (TE/CE)'),
-  ('CYB-007', 'HARSH SAKPAL', 'vu1f2425127 (TE/CE)'),
-  ('CYB-008', '137_VAIDEHI MORE', 'vu1f2425137 (TE/CE)'),
-  ('CYB-008', 'B_DSE_016_Raj Bhuran', 'vu1s2526016 (TE/CE)'),
-  ('CYB-008', 'B_DSE_015_Dakshata Takarkhede', 'vu1s2526015 (TE/CE)'),
-  ('CYB-008', 'AKSHITA GIDDE', 'vu1f2425088 (TE/CE)'),
-  ('CYB-009', 'AARYAN DHARNE', 'vu1f2627042 (FE/CE)'),
-  ('CYB-009', 'KUNAL RAJPUT', 'vu1f2627037 (FE/CE)'),
-  ('CYB-009', 'VYAS GALI', 'vu1f2627044 (FE/CE)'),
-  ('CYB-009', 'ANSHUMAAN PANDEY', 'vu1f2627034 (FE/CE)'),
-  ('CYB-010', 'B_DSE_003_Kunal Jadhav', 'vu1s2526003 (TE/CE)'),
-  ('CYB-010', 'DSE_010_Yaseen Shaikh', 'vu1s2526010 (TE/CE)'),
-  ('CYB-010', 'DSE_008_Owais Mukri', 'vu1s2526008 (TE/CE)'),
-  ('CYB-011', '002_MUHAMMAD UMAR CHIKTE TE B', 'vu1s2425002 (BE/CE)'),
-  ('CYB-011', '001_ARYAN TAMBE TE B', 'vu1s2425001 (BE/CE)'),
-  ('CYB-011', 'sayed mohammad', 'sayedmohammadi276 (BE/CE)'),
-  ('CYB-012', 'Tanvira Shaikh', 'vu1s2526006 (TE/CE)'),
-  ('CYB-012', 'Rohit Pardeshi', 'vu2s2627013 (SE/AI&DS)'),
-  ('CYB-012', 'DSE_017_Najma shaikh', 'vu1s2526017 (TE/CE)'),
-  ('CYB-012', 'OMKAR CHAVAN', 'vu7s2t2526012 (TE/MECH)'),
-  ('CYB-013', '078_Gaurav', 'vu1f2425078 (TE/CE)'),
-  ('CYB-013', 'B_Jay Davane_083', 'vu1f2425083 (TE/CE)'),
-  ('CYB-013', 'B_132_ Sanjana Gupta', 'vu1f2425132 (TE/CE)'),
-  ('CYB-013', 'B_095_ Bhargavi Nimbre', 'vu1f2425095 (TE/CE)'),
-  ('CYB-014', 'Vedant Sonawane', 'vu1f2627120 (FE/CE)')
-) AS m(key, name, identifier) ON t.team_key_hash = m.key;
 
 -- 4. VERIFY ROUND CODE RPC (NODE, HASH, LOCK, PORT)
 DROP FUNCTION IF EXISTS public.verify_round_code(uuid, integer, text) CASCADE;
