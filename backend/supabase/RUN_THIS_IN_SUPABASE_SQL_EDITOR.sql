@@ -790,3 +790,19 @@ GRANT EXECUTE ON FUNCTION admin_publish_round_selections(TEXT, INT, UUID[]) TO a
 GRANT EXECUTE ON FUNCTION admin_reset_event(TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION submit_question_answer(UUID, INT, INT, TEXT, NUMERIC) TO anon, authenticated;
 
+-- 13. PUBLIC QUESTIONS SECURE VIEW (Hides answers from clients while exposing options and questions)
+CREATE OR REPLACE VIEW public_questions AS
+SELECT 
+    id,
+    round_number,
+    question_number,
+    question_type,
+    difficulty,
+    question_data,
+    time_limit_seconds,
+    created_at
+FROM questions;
+
+GRANT SELECT ON public_questions TO anon, authenticated;
+
+
