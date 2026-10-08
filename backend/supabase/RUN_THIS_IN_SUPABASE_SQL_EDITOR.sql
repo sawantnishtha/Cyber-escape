@@ -5,7 +5,10 @@
 -- =========================================================================
 
 -- 1. ADMIN KEY VALIDATION RPC
-CREATE OR REPLACE FUNCTION validate_admin_key(p_admin_key TEXT)
+DROP FUNCTION IF EXISTS public.validate_admin_key(text) CASCADE;
+DROP FUNCTION IF EXISTS public.validate_admin_key(text, text) CASCADE;
+
+CREATE OR REPLACE FUNCTION validate_admin_key(p_key TEXT)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -14,7 +17,7 @@ DECLARE
     v_clean_key TEXT;
     v_admin RECORD;
 BEGIN
-    v_clean_key := UPPER(TRIM(p_admin_key));
+    v_clean_key := UPPER(TRIM(p_key));
 
     -- Hardcoded master keys for fail-safe access
     IF v_clean_key IN ('ADM-2007', 'ADMIN-CYBER-2026', 'ADMIN-DEMO') OR v_clean_key LIKE 'ADM-%' THEN
@@ -30,7 +33,7 @@ BEGIN
 
     -- Database lookup
     SELECT * INTO v_admin FROM admin_users 
-    WHERE UPPER(admin_key_hash) = v_clean_key;
+    WHERE UPPER(TRIM(admin_key_hash)) = v_clean_key;
 
     IF FOUND THEN
         RETURN jsonb_build_object(
@@ -44,6 +47,48 @@ BEGIN
     ELSE
         RETURN jsonb_build_object('success', false, 'error', 'Invalid admin authentication key.');
     END IF;
+END;
+$$;
+
+-- 1.1 TEAM KEY VALIDATION RPC
+DROP FUNCTION IF EXISTS public.validate_team_key(text) CASCADE;
+
+CREATE OR REPLACE FUNCTION validate_team_key(p_key TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_team RECORD;
+    v_session RECORD;
+    v_clean_key TEXT;
+BEGIN
+    v_clean_key := UPPER(TRIM(p_key));
+
+    SELECT * INTO v_team FROM teams WHERE UPPER(TRIM(team_key_hash)) = v_clean_key LIMIT 1;
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Invalid team key. Please check your key and try again.');
+    END IF;
+
+    SELECT * INTO v_session FROM game_session LIMIT 1;
+
+    -- Update connected time
+    UPDATE teams SET connected_at = NOW(), updated_at = NOW() WHERE id = v_team.id;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'team', jsonb_build_object(
+            'id', v_team.id,
+            'team_name', v_team.team_name,
+            'current_round', v_team.current_round,
+            'status', v_team.status
+        ),
+        'game_session', jsonb_build_object(
+            'current_round', COALESCE(v_session.current_round, 1),
+            'current_state', COALESCE(v_session.current_state, 'LANDING'),
+            'round_timer_seconds', COALESCE(v_session.round_timer_seconds, 300)
+        )
+    );
 END;
 $$;
 
@@ -145,6 +190,9 @@ JOIN (VALUES
 ) AS m(key, name, identifier) ON t.team_key_hash = m.key;
 
 -- 4. VERIFY ROUND CODE RPC (NODE, HASH, LOCK, PORT)
+DROP FUNCTION IF EXISTS public.verify_round_code(uuid, integer, text) CASCADE;
+DROP FUNCTION IF EXISTS public.verify_round_code(text, integer, text) CASCADE;
+
 CREATE OR REPLACE FUNCTION verify_round_code(
     p_team_id UUID,
     p_round_number INT,
@@ -212,6 +260,8 @@ END;
 $$;
 
 -- 5. SUBMIT FINAL RIDDLE ANSWER RPC (Supports Internet & A Map)
+DROP FUNCTION IF EXISTS public.submit_final_riddle_answer(uuid, text) CASCADE;
+
 CREATE OR REPLACE FUNCTION submit_final_riddle_answer(
     p_team_id UUID,
     p_submitted_answer TEXT
@@ -296,6 +346,8 @@ END;
 $$;
 
 -- 7. ADMIN CONFIRM & PUBLISH ROUND SELECTIONS RPC
+DROP FUNCTION IF EXISTS public.admin_confirm_round_selections(text, integer, uuid[]) CASCADE;
+
 CREATE OR REPLACE FUNCTION admin_confirm_round_selections(
     p_admin_key TEXT,
     p_round_number INT,
@@ -334,6 +386,8 @@ BEGIN
     RETURN jsonb_build_object('success', true, 'selected_count', array_length(p_selected_team_ids, 1));
 END;
 $$;
+
+DROP FUNCTION IF EXISTS public.admin_publish_round_selections(text, integer, uuid[]) CASCADE;
 
 CREATE OR REPLACE FUNCTION admin_publish_round_selections(
     p_admin_key TEXT,
@@ -374,6 +428,8 @@ END;
 $$;
 
 -- 8. ATOMIC ADMIN RESET EVENT RPC
+DROP FUNCTION IF EXISTS public.admin_reset_event(text) CASCADE;
+
 CREATE OR REPLACE FUNCTION admin_reset_event(p_admin_key TEXT)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -416,6 +472,9 @@ END;
 $$;
 
 -- 9. SUBMIT QUESTION ANSWER RPC (Normalizes Whitespace & Commas)
+DROP FUNCTION IF EXISTS public.submit_question_answer(uuid, integer, integer, text, numeric) CASCADE;
+DROP FUNCTION IF EXISTS public.submit_question_answer(uuid, integer, integer, text) CASCADE;
+
 CREATE OR REPLACE FUNCTION submit_question_answer(
     p_team_id UUID,
     p_round_number INT,
@@ -703,3 +762,15 @@ VALUES
     "java": "int n = 1221;\nint original = n;\nint rev = 0;\n\nwhile (n > 0) {\n    rev = rev * /* BLANK_1 */ + n % /* BLANK_2 */;\n    n = n / /* BLANK_3 */;\n}\n\nif (original == rev)\n    System.out.println(\"ACCESS GRANTED\");\nelse\n    System.out.println(\"ACCESS DENIED\");"
   }
 }', '10,10,10', 90, 'Decimal integers are base 10; multiply rev by 10, extract remainder modulo 10, and divide n by 10.');
+
+-- 12. RPC PERMISSIONS FOR CLIENT AND ANON ACCESS
+GRANT EXECUTE ON FUNCTION validate_admin_key(TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION validate_team_key(TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION verify_round_code(UUID, INT, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION submit_final_riddle_answer(UUID, TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION admin_set_game_state(TEXT, TEXT, INT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION admin_confirm_round_selections(TEXT, INT, UUID[]) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION admin_publish_round_selections(TEXT, INT, UUID[]) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION admin_reset_event(TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION submit_question_answer(UUID, INT, INT, TEXT, NUMERIC) TO anon, authenticated;
+
